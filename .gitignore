@@ -1,0 +1,9 @@
+
+# Ignore secrets files
+**/secrets.yml
+**/values.yml
+
+# Python bytecode
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
