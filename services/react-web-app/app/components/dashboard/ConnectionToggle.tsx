@@ -28,20 +28,20 @@ export function ConnectionToggle({ delay }: { delay: number }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 300, damping: 24, delay }}
-      className="eg-panel p-3"
+      className="eg-panel p-5"
     >
-      <div className="text-center mb-3">
-        <span className="font-display text-[10px] tracking-[0.15em] text-[var(--eg-text-dim)] font-bold">
+      <div className="text-center mb-4">
+        <span className="font-display text-[11px] tracking-[0.08em] text-[var(--eg-text-dim)] font-semibold">
           NETWORK CONTROL
         </span>
       </div>
 
       <button
         onClick={() => setOnline(!isOnline)}
-        className={`relative w-full py-3 rounded-lg font-display text-[11px] tracking-[0.2em] font-bold transition-all duration-300 overflow-hidden ${
+        className={`relative w-full py-4 rounded-2xl font-display text-[11px] tracking-[0.08em] font-semibold transition-all duration-300 overflow-hidden ${
           isOnline
-            ? "bg-[var(--eg-ok)]/10 border-2 border-[var(--eg-ok)]/40 text-[var(--eg-ok)] hover:bg-[var(--eg-ok)]/20"
-            : "bg-[var(--eg-anomaly)]/10 border-2 border-[var(--eg-anomaly)]/40 text-[var(--eg-anomaly)] hover:bg-[var(--eg-anomaly)]/20"
+            ? "bg-white border-2 border-[var(--eg-anomaly)]/25 text-[var(--eg-anomaly)] hover:bg-[var(--eg-anomaly)]/6"
+            : "bg-[var(--eg-flow)] border-2 border-[var(--eg-flow)] text-white hover:bg-[#1c65a3]"
         }`}
       >
         <AnimatePresence mode="wait">
@@ -78,7 +78,7 @@ export function ConnectionToggle({ delay }: { delay: number }) {
       <button
         onClick={clearDatabase}
         disabled={isClearing}
-        className="mt-3 w-full rounded-lg border border-[var(--eg-flow)]/25 bg-[var(--eg-surface)] px-3 py-2.5 font-display text-[10px] font-bold tracking-[0.22em] text-[var(--eg-flow)] transition-all duration-300 hover:border-[var(--eg-flow)]/50 hover:bg-[var(--eg-flow)]/8 disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-4 w-full rounded-2xl border border-[var(--eg-border)] bg-[#f7f9fc] px-3 py-3 font-display text-[11px] font-semibold tracking-[0.08em] text-[var(--eg-flow)] transition-all duration-300 hover:border-[var(--eg-flow)]/40 hover:bg-[var(--eg-flow)]/6 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <AnimatePresence mode="wait">
           <motion.span

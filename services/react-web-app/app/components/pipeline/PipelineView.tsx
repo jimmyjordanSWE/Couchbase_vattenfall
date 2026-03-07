@@ -120,9 +120,9 @@ function TurbineGlyph({
         y={y + 22}
         textAnchor="middle"
         fill={dormant ? "var(--eg-muted)" : active ? "var(--eg-anomaly)" : "var(--eg-text-dim)"}
-        fontSize="10"
-        fontWeight="700"
-        fontFamily="Orbitron, sans-serif"
+        fontSize="13"
+        fontWeight="600"
+        fontFamily="IBM Plex Sans, Segoe UI, sans-serif"
         opacity={dormant ? 0.4 : 1}
       >
         {label}
@@ -185,10 +185,10 @@ function AIChipNode({ x, y, isRunning }: { x: number; y: number; isRunning: bool
       </g>
 
       {/* Labels */}
-      <text x={0} y={s + 16} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : "var(--eg-text-dim)"} fontSize="8" fontWeight="600" fontFamily="Orbitron, sans-serif" letterSpacing="0.1em">
+      <text x={0} y={s + 16} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : "var(--eg-text-dim)"} fontSize="10" fontWeight="600" fontFamily="IBM Plex Sans, Segoe UI, sans-serif">
         EDGE AI
       </text>
-      <text x={0} y={s + 26} textAnchor="middle" fill={color} fontSize="7" fontWeight="500" fontFamily="Orbitron, sans-serif" opacity={0.6} letterSpacing="0.05em">
+      <text x={0} y={s + 29} textAnchor="middle" fill={color} fontSize="8" fontWeight="500" fontFamily="IBM Plex Sans, Segoe UI, sans-serif" opacity={0.6}>
         ISOLATION FOREST
       </text>
     </g>
@@ -310,7 +310,7 @@ function BufferTank({ x, y, ratio, inCompactionZone, compactionFlash, isRunning 
       </g>
 
       {/* Labels */}
-      <text x={0} y={tankH / 2 + 16} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : inCompactionZone ? "var(--eg-anomaly)" : "var(--eg-text-dim)"} fontSize="8" fontWeight="600" fontFamily="Orbitron, sans-serif" letterSpacing="0.1em">
+      <text x={0} y={tankH / 2 + 16} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : inCompactionZone ? "var(--eg-anomaly)" : "var(--eg-text-dim)"} fontSize="10" fontWeight="600" fontFamily="IBM Plex Sans, Segoe UI, sans-serif">
         EDGE COUCHBASE
       </text>
       <text x={0} y={tankH / 2 + 28} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : inCompactionZone ? "var(--eg-anomaly)" : "var(--eg-flow)"} fontSize="9" fontWeight="700" fontFamily="JetBrains Mono, monospace">
@@ -385,7 +385,7 @@ function ValveNode({ x, y, isOnline, isRunning, onToggle }: {
         </ellipse>
       )}
 
-      <text x={0} y={40} textAnchor="middle" fill={color} fontSize="8" fontWeight="700" fontFamily="Orbitron, sans-serif" letterSpacing="0.1em">
+      <text x={0} y={40} textAnchor="middle" fill={color} fontSize="10" fontWeight="600" fontFamily="IBM Plex Sans, Segoe UI, sans-serif">
         {dormant ? "LINK IDLE" : isOnline ? "LINK LIVE" : "LINK LOST"}
       </text>
     </g>
@@ -428,11 +428,11 @@ function CentralDBNode({ x, y, count, isOnline, isRunning }: {
       )}
 
       {/* Labels */}
-      <text x={0} y={48} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : isOnline ? "var(--eg-text-dim)" : "var(--eg-muted)"} fontSize="8" fontWeight="600" fontFamily="Orbitron, sans-serif" letterSpacing="0.1em">
+      <text x={0} y={48} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : isOnline ? "var(--eg-text-dim)" : "var(--eg-muted)"} fontSize="10" fontWeight="600" fontFamily="IBM Plex Sans, Segoe UI, sans-serif">
         CENTRAL DB
       </text>
       {!isOnline && isRunning && (
-        <text x={0} y={60} textAnchor="middle" fill="var(--eg-anomaly)" fontSize="7" fontWeight="700" fontFamily="Orbitron, sans-serif" opacity={0.8}>
+        <text x={0} y={60} textAnchor="middle" fill="var(--eg-anomaly)" fontSize="8" fontWeight="600" fontFamily="IBM Plex Sans, Segoe UI, sans-serif" opacity={0.8}>
           UNREACHABLE
         </text>
       )}
@@ -542,9 +542,9 @@ export function PipelineView() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.25, ease: "easeOut" }}
-              className="pointer-events-none absolute left-4 right-4 top-3 z-20 rounded-md border border-[var(--eg-anomaly)]/35 bg-[rgba(48,10,10,0.88)] px-4 py-2 text-center backdrop-blur-sm"
+              className="pointer-events-none absolute left-4 right-4 top-3 z-20 rounded-md border border-[var(--eg-anomaly)] bg-[var(--eg-anomaly)] px-4 py-2 text-center shadow-[0_10px_24px_rgba(249,59,24,0.22)]"
             >
-              <span className="font-display text-[10px] tracking-[0.3em] text-[var(--eg-anomaly)] font-bold">
+              <span className="font-display text-[11px] tracking-[0.08em] text-white font-bold">
                 NETWORK DISCONNECTED — EDGE ISOLATION MODE
               </span>
             </motion.div>
@@ -627,10 +627,10 @@ export function PipelineView() {
           {/* Section labels */}
           {isRunning && (
             <>
-              <text x={PIPE_START_X + 15} y={PIPE_Y - 18} fill="var(--eg-text-dim)" fontSize="7" fontFamily="Orbitron, sans-serif" letterSpacing="0.15em" opacity={0.5}>
+              <text x={PIPE_START_X + 15} y={PIPE_Y - 18} fill="var(--eg-text-dim)" fontSize="10" fontFamily="IBM Plex Sans, Segoe UI, sans-serif" opacity={0.6}>
                 INGEST
               </text>
-              <text x={VALVE_X + 40} y={PIPE_Y - 18} fill="var(--eg-text-dim)" fontSize="7" fontFamily="Orbitron, sans-serif" letterSpacing="0.15em" opacity={isOnline ? 0.5 : 0.2}>
+              <text x={VALVE_X + 40} y={PIPE_Y - 18} fill="var(--eg-text-dim)" fontSize="10" fontFamily="IBM Plex Sans, Segoe UI, sans-serif" opacity={isOnline ? 0.6 : 0.25}>
                 CLOUD SYNC
               </text>
             </>
