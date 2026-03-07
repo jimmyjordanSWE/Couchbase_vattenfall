@@ -30,11 +30,12 @@ from models.edgeguard import (
     SystemStatus,
 )
 
-EDGE_CAPACITY = 25
+EDGE_CAPACITY = 10
 COMPACTION_THRESHOLD = 20
 TURBINE_COUNT = 3
 EMIT_INTERVAL_MS = 1400
 DRAIN_INTERVAL_MS = 1200
+RECOVERY_DRAIN_MULTIPLIER = 5
 TURBINE_HISTORY_SIZE = 30
 TIER1_WINDOW_SIZE = 5
 TIER2_MERGE_COUNT = 4
@@ -116,6 +117,7 @@ class SimulationEngine:
         self.edge_pressure:         float = 0.0
         self.forced_anomaly_turbine: int | None = None
         self.anomaly_burst_left:    int  = 0
+        self.recovery_drain_active: bool = False
 
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self._emit_task:   asyncio.Task[None] | None = None
@@ -353,13 +355,18 @@ class SimulationEngine:
     # Drain loop — edge → Sync Gateway → central
     # ------------------------------------------------------------------
 
+    def _current_drain_interval(self) -> float:
+        if self.recovery_drain_active:
+            return (DRAIN_INTERVAL_MS / RECOVERY_DRAIN_MULTIPLIER) / 1000.0
+        return DRAIN_INTERVAL_MS / 1000.0
+
     async def _drain_loop(self) -> None:
-        interval = DRAIN_INTERVAL_MS / 1000.0
         while True:
-            await asyncio.sleep(interval)
+            await asyncio.sleep(self._current_drain_interval())
             if not self.is_running or not self.is_online:
                 continue
             if not self.edge_storage:
+                self.recovery_drain_active = False
                 continue
 
             item = self.edge_storage.pop(0)
@@ -372,6 +379,8 @@ class SimulationEngine:
                 "lastSyncTimestamp": self.last_sync_timestamp,
             })
             self._publish_metrics()
+            if not self.edge_storage:
+                self.recovery_drain_active = False
             # Edge Server continuously replicates to Sync Gateway → Couchbase Server;
             # no explicit push needed here.
 
@@ -432,6 +441,7 @@ class SimulationEngine:
         self.edge_pressure = 0.0
         self.forced_anomaly_turbine = None
         self.anomaly_burst_left = 0
+        self.recovery_drain_active = False
         self._publish("system_status", self.get_status_dict())
         self._publish_metrics()
 
@@ -460,14 +470,16 @@ class SimulationEngine:
         self.is_online = online
 
         if was_offline and online:
+            self.recovery_drain_active = bool(self.edge_storage)
             self.compaction_logs.append(
                 CompactionLogEntry(
-                    message="CONNECTION RESTORED — SYNCING EDGE BUFFER",
+                    message="CONNECTION RESTORED — FAST SYNCING EDGE BUFFER",
                     timestamp=_now_ms(),
                     severity="sync",
                 ).model_dump(by_alias=True)
             )
         elif not online:
+            self.recovery_drain_active = False
             self.compaction_logs.append(
                 CompactionLogEntry(
                     message="CONNECTION LOST — EDGE ISOLATION MODE",

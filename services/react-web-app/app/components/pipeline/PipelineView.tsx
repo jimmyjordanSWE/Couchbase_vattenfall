@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePipelineStore } from "~/stores/pipelineStore";
 import { COMPACTION_THRESHOLD, EDGE_CAPACITY } from "~/stores/pipelineStore";
@@ -7,7 +7,6 @@ import {
   BRAIN_X,
   BUFFER_X,
   CENTRAL_X,
-  packetPosition,
   PIPE_END_X,
   PIPE_PATH_LEFT,
   PIPE_PATH_RIGHT,
@@ -16,12 +15,8 @@ import {
   TURBINE_POSITIONS,
   VALVE_X,
 } from "~/components/pipeline/pipelineGeometry";
-import { isCompactedBlock, isDataPoint } from "~/types/edgeguard";
 
 const VIEW = { width: 1100, height: 350 };
-
-/** Progress along "to-buffer" at which the packet passes the Edge AI chip (turns red when anomaly). */
-const BRAIN_PROGRESS = (BRAIN_X - PIPE_START_X) / (BUFFER_X - PIPE_START_X);
 
 function TurbineGlyph({
   x,
@@ -119,20 +114,6 @@ function TurbineGlyph({
         <line x1={x} y1={hubY} x2={x + 22} y2={hubY + 14} stroke={bladeColor} strokeWidth={2.5} strokeLinecap="round" opacity={dormant ? 0.3 : 1} />
       </g>
 
-      {/* Data beam from turbine to pipe */}
-      {isRunning && (
-        <line
-          x1={x}
-          y1={y + 4}
-          x2={PIPE_START_X}
-          y2={PIPE_Y}
-          stroke={active ? "var(--eg-anomaly)" : "var(--eg-flow)"}
-          strokeWidth={0.8}
-          strokeDasharray="3 6"
-          opacity={0.3}
-        />
-      )}
-
       {/* Label */}
       <text
         x={x}
@@ -150,16 +131,7 @@ function TurbineGlyph({
   );
 }
 
-function packetEntryPosition(sourceTurbine: number, progress: number): { x: number; y: number } {
-  const pos = TURBINE_POSITIONS[Math.max(0, Math.min(2, sourceTurbine - 1))];
-  const normalized = Math.min(progress / 0.22, 1);
-  return {
-    x: pos.x + (PIPE_START_X - pos.x) * normalized,
-    y: pos.y + (PIPE_Y - pos.y) * normalized,
-  };
-}
-
-function AIChipNode({ x, y, isActive, isRunning }: { x: number; y: number; isActive: boolean; isRunning: boolean }) {
+function AIChipNode({ x, y, isRunning }: { x: number; y: number; isRunning: boolean }) {
   const dormant = !isRunning;
   const color = dormant ? "var(--eg-muted)" : "var(--eg-flow)";
   const activeOpacity = dormant ? 0.3 : 1;
@@ -357,7 +329,6 @@ function ValveNode({ x, y, isOnline, isRunning, onToggle }: {
 }) {
   const dormant = !isRunning;
   const color = dormant ? "var(--eg-muted)" : isOnline ? "var(--eg-flow)" : "var(--eg-anomaly)";
-  const gateRotation = isOnline ? 0 : 90;
 
   return (
     <g
@@ -375,58 +346,47 @@ function ValveNode({ x, y, isOnline, isRunning, onToggle }: {
       style={{ cursor: isRunning ? "pointer" : "default" }}
       opacity={dormant ? 0.4 : 1}
     >
-      {/* Pipe stubs left/right */}
-      <rect x={-38} y={-8} width={16} height={16} rx={2} fill="var(--eg-surface)" stroke={color} strokeWidth={1.2} />
-      <rect x={22} y={-8} width={16} height={16} rx={2} fill="var(--eg-surface)" stroke={color} strokeWidth={1.2} />
+      <rect x={-42} y={-5} width={20} height={10} rx={3} fill="var(--eg-surface)" stroke={color} strokeWidth={1.2} />
+      <rect x={22} y={-5} width={20} height={10} rx={3} fill="var(--eg-surface)" stroke={color} strokeWidth={1.2} />
 
-      {/* Valve body - rounded housing */}
-      <ellipse cx={0} cy={0} rx={22} ry={24} fill="var(--eg-surface)" stroke={color} strokeWidth={1.6} />
+      <path
+        d="M -22 0 C -13 -18, -5 -18, 5 0"
+        fill="none"
+        stroke={color}
+        strokeWidth={3.2}
+        strokeLinecap="round"
+        opacity={isOnline ? 0.95 : 0.28}
+      />
+      <path
+        d="M -5 0 C 5 18, 13 18, 22 0"
+        fill="none"
+        stroke={color}
+        strokeWidth={3.2}
+        strokeLinecap="round"
+        opacity={isOnline ? 0.95 : 0.28}
+      />
 
-      {/* Gate disc - rotates between open (0°) and closed (90°) */}
-      <g>
-        <animateTransform
-          attributeName="transform"
-          type="rotate"
-          from={isOnline ? "90 0 0" : "0 0 0"}
-          to={`${gateRotation} 0 0`}
-          dur="0.4s"
-          fill="freeze"
-        />
-        <rect x={-2} y={-20} width={4} height={40} rx={2} fill={color} opacity={0.7} />
-        {/* Gate handle knob */}
-        <circle cx={0} cy={-20} r={4} fill={color} opacity={0.5} />
-        <circle cx={0} cy={20} r={4} fill={color} opacity={0.5} />
-      </g>
-
-      {/* Flow arrows when open */}
-      {isOnline && isRunning && (
-        <g opacity={0.4}>
-          <path d="M -14 0 L -8 -3 L -8 3 Z" fill={color}>
-            <animate attributeName="opacity" values="0.2;0.5;0.2" dur="1.2s" repeatCount="indefinite" />
-          </path>
-          <path d="M 8 0 L 14 -3 L 14 3 Z" fill={color}>
-            <animate attributeName="opacity" values="0.2;0.5;0.2" dur="1.2s" begin="0.4s" repeatCount="indefinite" />
-          </path>
-        </g>
+      {!isOnline && (
+        <>
+          <path d="M -4 -18 L 4 -8" stroke="var(--eg-anomaly)" strokeWidth={2.6} strokeLinecap="round" />
+          <path d="M -4 -8 L 4 -18" stroke="var(--eg-anomaly)" strokeWidth={2.6} strokeLinecap="round" />
+        </>
       )}
 
-      {/* Blocked warning ring when closed */}
+      {isOnline && isRunning && (
+        <ellipse cx={0} cy={0} rx={24} ry={20} fill="none" stroke="var(--eg-flow)" strokeWidth={0.7} opacity={0.18}>
+          <animate attributeName="opacity" values="0.08;0.24;0.08" dur="2.4s" repeatCount="indefinite" />
+        </ellipse>
+      )}
+
       {!isOnline && isRunning && (
-        <ellipse cx={0} cy={0} rx={28} ry={30} fill="none" stroke="var(--eg-anomaly)" strokeWidth={1} opacity={0.3}>
-          <animate attributeName="opacity" values="0.15;0.4;0.15" dur="1.5s" repeatCount="indefinite" />
+        <ellipse cx={0} cy={0} rx={30} ry={24} fill="none" stroke="var(--eg-anomaly)" strokeWidth={1} opacity={0.28}>
+          <animate attributeName="opacity" values="0.12;0.35;0.12" dur="1.5s" repeatCount="indefinite" />
         </ellipse>
       )}
 
-      {/* Subtle glow when open */}
-      {isOnline && isRunning && (
-        <ellipse cx={0} cy={0} rx={26} ry={28} fill="none" stroke="var(--eg-flow)" strokeWidth={0.5} opacity={0.15}>
-          <animate attributeName="opacity" values="0.08;0.2;0.08" dur="3s" repeatCount="indefinite" />
-        </ellipse>
-      )}
-
-      {/* Label */}
       <text x={0} y={40} textAnchor="middle" fill={color} fontSize="8" fontWeight="700" fontFamily="Orbitron, sans-serif" letterSpacing="0.1em">
-        {dormant ? "STANDBY" : isOnline ? "VALVE OPEN" : "VALVE SHUT"}
+        {dormant ? "LINK IDLE" : isOnline ? "LINK LIVE" : "LINK LOST"}
       </text>
     </g>
   );
@@ -480,8 +440,62 @@ function CentralDBNode({ x, y, count, isOnline, isRunning }: {
   );
 }
 
+function ConveyorLane({
+  path,
+  color,
+  count,
+  duration,
+  size,
+  opacity = 0.9,
+  anomalyActive = false,
+}: {
+  path: string;
+  color: string;
+  count: number;
+  duration: number;
+  size: number;
+  opacity?: number;
+  anomalyActive?: boolean;
+}) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, index) => {
+        const begin = `-${(duration / count) * index}s`;
+
+        return (
+          <g key={`${path}-${index}`} filter="url(#glow-cyan)">
+            <circle r={size * 1.8} fill={color} opacity={0.08} />
+            <circle r={size} fill={color} opacity={opacity} />
+            <circle r={Math.max(1.5, size * 0.45)} fill="white" opacity={0.65} />
+            <animateMotion
+              dur={`${duration}s`}
+              begin={begin}
+              repeatCount="indefinite"
+              path={path}
+              rotate="auto"
+            />
+          </g>
+        );
+      })}
+      {anomalyActive && (
+        <g filter="url(#glow-red)">
+          <circle r={(size + 1) * 1.8} fill="var(--eg-anomaly)" opacity={0.12} />
+          <circle r={size + 1} fill="var(--eg-anomaly)" opacity={0.95} />
+          <circle r={Math.max(1.5, (size + 1) * 0.45)} fill="white" opacity={0.7} />
+          <animateMotion
+            dur={`${duration}s`}
+            begin="0s"
+            repeatCount="indefinite"
+            path={path}
+            rotate="auto"
+          />
+        </g>
+      )}
+    </>
+  );
+}
+
 export function PipelineView() {
-  const packetsInTransit = usePipelineStore((s) => s.packetsInTransit);
   const edgeStorage = usePipelineStore((s) => s.edgeStorage);
   const centralStorage = usePipelineStore((s) => s.centralStorage);
   const isOnline = usePipelineStore((s) => s.isOnline);
@@ -511,24 +525,24 @@ export function PipelineView() {
 
   const bufferRatio = Math.min(1, edgeStorage.length / EDGE_CAPACITY);
   const inCompactionZone = bufferRatio >= COMPACTION_THRESHOLD / EDGE_CAPACITY;
-
-  const brainActive = useMemo(() => {
-    return packetsInTransit.some(
-      (p) => p.segment === "to-buffer" && p.progress >= 0.22 && p.progress <= 0.55
-    );
-  }, [packetsInTransit]);
+  const conveyorColor = edgePressure > 0.5 ? "var(--eg-alert)" : "var(--eg-flow)";
+  const showAnomalyDot = isRunning && forcedAnomalyTurbine != null;
+  const conveyorCount = 7;
+  const conveyorDuration = 4.8;
+  const conveyorSize = 4;
 
   return (
     <div className="w-full">
       <div className="relative rounded-xl border border-[var(--eg-border)] bg-[var(--eg-panel)] overflow-hidden shadow-[0_8px_60px_rgba(0,0,0,0.6)]">
-        {/* Status banner */}
+        {/* Status banner overlay */}
         <AnimatePresence>
           {!isOnline && isRunning && (
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="bg-[var(--eg-anomaly)]/15 border-b border-[var(--eg-anomaly)]/30 px-4 py-1.5 text-center"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="pointer-events-none absolute left-4 right-4 top-3 z-20 rounded-md border border-[var(--eg-anomaly)]/35 bg-[rgba(48,10,10,0.88)] px-4 py-2 text-center backdrop-blur-sm"
             >
               <span className="font-display text-[10px] tracking-[0.3em] text-[var(--eg-anomaly)] font-bold">
                 NETWORK DISCONNECTED — EDGE ISOLATION MODE
@@ -579,13 +593,13 @@ export function PipelineView() {
           <path d={PIPE_PATH_LEFT} fill="none" stroke={isRunning ? "var(--eg-border)" : "var(--eg-muted)"} strokeWidth={20} strokeLinecap="round" opacity={isRunning ? 1 : 0.3} />
           {isRunning && <path d={PIPE_PATH_LEFT} fill="none" stroke="url(#pipe-glow-left)" strokeWidth={10} strokeLinecap="round" />}
           {isRunning && (
-            <path
-              d={PIPE_PATH_LEFT}
-              fill="none"
-              stroke={edgePressure > 0.5 ? "var(--eg-alert)" : "var(--eg-flow)"}
-              strokeWidth={2}
-              className="pipe-flow-anim"
-              opacity={0.6}
+            <ConveyorLane
+              path={PIPE_PATH_LEFT}
+              color={conveyorColor}
+              count={conveyorCount}
+              duration={conveyorDuration}
+              size={conveyorSize}
+              anomalyActive={showAnomalyDot}
             />
           )}
 
@@ -600,13 +614,13 @@ export function PipelineView() {
             />
           )}
           {isOnline && isRunning && (
-            <path
-              d={PIPE_PATH_RIGHT}
-              fill="none"
-              stroke="var(--eg-flow)"
-              strokeWidth={2}
-              className="pipe-flow-anim"
-              opacity={0.4}
+            <ConveyorLane
+              path={PIPE_PATH_RIGHT}
+              color="var(--eg-flow)"
+              count={conveyorCount}
+              duration={conveyorDuration}
+              size={conveyorSize}
+              opacity={0.75}
             />
           )}
 
@@ -621,35 +635,6 @@ export function PipelineView() {
               </text>
             </>
           )}
-
-          {/* === PACKETS / PARTICLES === */}
-          {packetsInTransit.map((packet) => {
-            const isAnomalyPayload = "anomalyScore" in packet.payload && packet.payload.type === "anomaly";
-            const isCompacted = packet.payload.type === "compacted";
-            const pastEdgeAI =
-              packet.segment === "to-central" ||
-              (packet.segment === "to-buffer" && packet.progress >= BRAIN_PROGRESS);
-            const showAsAnomaly = isAnomalyPayload && pastEdgeAI;
-
-            const position =
-              packet.segment === "to-buffer" &&
-              "sourceTurbine" in packet.payload &&
-              packet.progress < 0.22
-                ? packetEntryPosition(packet.payload.sourceTurbine, packet.progress)
-                : packetPosition(packet.segment, packet.progress);
-
-            const color = showAsAnomaly ? "var(--eg-anomaly)" : isCompacted ? "#b388ff" : "var(--eg-flow)";
-            const size = showAsAnomaly ? 5 : isCompacted ? 6 : 4;
-
-            return (
-              <g key={packet.id} filter={showAsAnomaly ? "url(#glow-red)" : "url(#glow-cyan)"}>
-                <circle cx={position.x - 8} cy={position.y} r={size * 0.6} fill={color} opacity={0.15} />
-                <circle cx={position.x - 4} cy={position.y} r={size * 0.8} fill={color} opacity={0.25} />
-                <circle cx={position.x} cy={position.y} r={size} fill={color} opacity={0.9} />
-                <circle cx={position.x} cy={position.y} r={size * 0.4} fill="white" opacity={0.6} />
-              </g>
-            );
-          })}
 
           {/* === TURBINES (triangular formation) === */}
           {TURBINE_POSITIONS.map((pos, index) => {
@@ -671,7 +656,7 @@ export function PipelineView() {
           })}
 
           {/* === EDGE AI CHIP === */}
-          <AIChipNode x={BRAIN_X} y={PIPE_Y} isActive={brainActive} isRunning={isRunning} />
+          <AIChipNode x={BRAIN_X} y={PIPE_Y} isRunning={isRunning} />
 
           {/* === BUFFER TANK === */}
           <BufferTank

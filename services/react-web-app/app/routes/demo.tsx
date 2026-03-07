@@ -23,13 +23,33 @@ export function meta({}: Route.MetaArgs) {
 
 function BootOverlay() {
   const localInitialize = usePipelineStore((s) => s.initialize);
+  const clearPipelineData = usePipelineStore((s) => s.clearPipelineData);
 
   const handleInitialize = async () => {
+    clearPipelineData();
+
     try {
       await edgeguardApi.initialize();
+      const status = await edgeguardApi.getStatus();
+
+      if (status.isRunning) {
+        await edgeguardApi.stop();
+      }
+
+      usePipelineStore.setState({
+        isInitialized: true,
+        isRunning: false,
+        isOnline: status.isOnline,
+      });
+      return;
     } catch {
       // Fallback to local if backend unreachable
     }
+
+    usePipelineStore.setState({
+      isRunning: false,
+      isOnline: true,
+    });
     localInitialize();
   };
 
@@ -45,13 +65,13 @@ function BootOverlay() {
       <div className="absolute inset-0 eg-atmosphere pointer-events-none" />
 
       {/* Grid background */}
-      <div className="absolute inset-0 opacity-[0.03]" style={{
+      <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
         backgroundImage: "linear-gradient(var(--eg-flow) 1px, transparent 1px), linear-gradient(90deg, var(--eg-flow) 1px, transparent 1px)",
         backgroundSize: "60px 60px",
       }} />
 
       {/* Central content */}
-      <div className="relative z-10 flex flex-col items-center gap-8">
+      <div className="relative z-10 flex flex-col items-center gap-8 pointer-events-auto">
         {/* Logo glow ring */}
         <motion.div
           className="relative"

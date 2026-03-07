@@ -19,7 +19,7 @@ export type CompactionLogEntry = ApiCompactionLogEntry;
 const PROGRESS_SPEED_TO_BUFFER = 0.36;
 const PROGRESS_SPEED_TO_CENTRAL = 0.32;
 
-export const EDGE_CAPACITY = 25;
+export const EDGE_CAPACITY = 10;
 export const COMPACTION_THRESHOLD = 20;
 
 export interface PipelineState {
