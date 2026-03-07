@@ -392,6 +392,27 @@ body {
   transition: width 0.4s ease-out, background-color 0.6s ease;
 }
 
+@keyframes eg-flow-dash {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
+.eg-flow-stroke {
+  animation-name: eg-flow-dash;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: stroke-dashoffset, opacity;
+}
+
+.eg-flow-running {
+  animation-play-state: running;
+}
+
+.eg-flow-paused {
+  animation-play-state: paused;
+  opacity: 0;
+}
+
 /* Scrollbar styling for edge panels */
 .edgeguard-demo ::-webkit-scrollbar,
 .eg-scrollbar::-webkit-scrollbar {

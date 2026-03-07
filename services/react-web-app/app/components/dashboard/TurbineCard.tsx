@@ -108,7 +108,10 @@ export function TurbineCard({
 }) {
   const history = usePipelineStore((s) => s.perTurbineHistory[turbineId] || []);
   const activeTransitCount = usePipelineStore(
-    (s) => s.anomalyTransitTokens.filter((token) => token.turbineId === turbineId).length,
+    (s) =>
+      s.ingestEntities.filter(
+        (entity) => entity.kind === "anomaly" && entity.turbineId === turbineId,
+      ).length,
   );
 
   const lastPoint  = history[history.length - 1];
@@ -226,7 +229,7 @@ export function TurbineCard({
             : "bg-[#f7f9fc] border border-[var(--eg-border)] text-[var(--eg-text)] hover:border-[var(--eg-flow)]/50 hover:text-[var(--eg-flow)]"
         }`}
       >
-        {activeTransitCount > 0 ? `ANOMALY IN TRANSIT${activeTransitCount > 1 ? ` (${activeTransitCount})` : ""}` : "INJECT ANOMALY"}
+        INJECT ANOMALY
       </button>
     </motion.div>
   );

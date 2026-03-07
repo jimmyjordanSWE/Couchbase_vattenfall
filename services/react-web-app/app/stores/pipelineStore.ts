@@ -1,8 +1,5 @@
 import { create } from "zustand";
-import type {
-  EdgeGuardItem,
-  DataPoint,
-} from "~/types/edgeguard";
+import type { EdgeGuardItem, DataPoint, CompactedBlock } from "~/types/edgeguard";
 import type {
   Metrics,
   EdgeUpdatePayload,
@@ -20,45 +17,81 @@ export type TransportUiState =
   | "offline_buffering"
   | "offline_mesh_unloading";
 
+export type EdgeItemKind = "normal" | "anomaly" | "compacted";
+export type TransitChannel = "ingest" | "cloud" | "mesh";
+
+export interface TransitEntity {
+  id: string;
+  channel: TransitChannel;
+  kind: EdgeItemKind;
+  turbineId?: number;
+}
+
+interface PendingOutboundHandoff {
+  entityId: string;
+  channel: "cloud" | "mesh";
+  item: EdgeGuardItem;
+  durationMs: number;
+}
+
 export const CLOUD_SYNC_INTERVAL_MS = 120;
 export const RECOVERY_DRAIN_MULTIPLIER = 5;
 export const RECOVERY_SYNC_INTERVAL_MS =
   CLOUD_SYNC_INTERVAL_MS / RECOVERY_DRAIN_MULTIPLIER;
 export const EDGE_CAPACITY = 100;
 export const COMPACTION_THRESHOLD = 80;
-export const ANOMALY_PIPELINE_TRAVEL_MS = 2200;
+export const INGEST_TRANSIT_MS = 2200;
+export const CLOUD_TRANSIT_MS = 900;
+export const MESH_TRANSIT_MS = 900;
 
-export interface AnomalyTransitToken {
-  id: string;
-  turbineId: number;
+function isDataPoint(item: EdgeGuardItem): item is DataPoint {
+  return "id" in item && "anomalyScore" in item;
 }
 
-function isAnomalyItem(item: EdgeGuardItem | undefined): item is DataPoint {
-  return !!item && "type" in item && item.type === "anomaly";
+function isCompactedBlock(item: EdgeGuardItem): item is CompactedBlock {
+  return item.type === "compacted";
 }
 
-function consumeVisualAnomalyCounts(
-  visualEdgeAnomalyCount: number,
-  pendingVisualEdgeAnomalyArrivals: number,
+function getItemKind(item: EdgeGuardItem): EdgeItemKind {
+  if (isCompactedBlock(item)) return "compacted";
+  return item.type;
+}
+
+function getRuntimeItemId(item: EdgeGuardItem): string {
+  if (isDataPoint(item)) return item.id;
+  return `compacted_${item.range}_${item.tier}`;
+}
+
+function countAnomalies(items: EdgeGuardItem[]) {
+  return items.filter((item) => isDataPoint(item) && item.type === "anomaly").length;
+}
+
+function findMeshDrainIndex(items: EdgeGuardItem[]) {
+  const anomalyIndex = items.findIndex((item) => getItemKind(item) === "anomaly");
+  if (anomalyIndex >= 0) return anomalyIndex;
+
+  const normalIndex = items.findIndex((item) => getItemKind(item) === "normal");
+  if (normalIndex >= 0) return normalIndex;
+
+  return 0;
+}
+
+type PendingItems = Record<string, EdgeGuardItem>;
+type PendingOutboundHandshakes = Record<string, PendingOutboundHandoff>;
+
+function scheduleOutboundCompletion(
+  channel: "cloud" | "mesh",
+  durationMs: number,
+  entityId: string,
+  getState: () => PipelineState,
 ) {
-  if (visualEdgeAnomalyCount > 0) {
-    return {
-      visualEdgeAnomalyCount: visualEdgeAnomalyCount - 1,
-      pendingVisualEdgeAnomalyArrivals,
-    };
-  }
-
-  if (pendingVisualEdgeAnomalyArrivals > 0) {
-    return {
-      visualEdgeAnomalyCount,
-      pendingVisualEdgeAnomalyArrivals: pendingVisualEdgeAnomalyArrivals - 1,
-    };
-  }
-
-  return {
-    visualEdgeAnomalyCount,
-    pendingVisualEdgeAnomalyArrivals,
-  };
+  scheduleStoreAction(durationMs, () => {
+    if (channel === "cloud") {
+      getState().completeCloudTransit(entityId);
+      return;
+    }
+    getState().completeMeshTransit(entityId);
+  });
 }
 
 export interface PipelineState {
@@ -70,19 +103,26 @@ export interface PipelineState {
   introComplete: boolean;
   compactionLogs: CompactionLogEntry[];
   compactionCount: number;
-  anomalyTransitTokens: AnomalyTransitToken[];
 
   perTurbineHistory: Record<number, DataPoint[]>;
   totalPacketsEmitted: number;
   totalAnomalies: number;
   lastSyncTimestamp: number | null;
   edgePressure: number;
-  visualEdgeAnomalyCount: number;
-  pendingVisualEdgeAnomalyArrivals: number;
   lastDrainedItemId: string | null;
   compactionFlashId: string | null;
 
-  // UI-only actions (kept local)
+  ingestEntities: TransitEntity[];
+  cloudEntities: TransitEntity[];
+  meshEntities: TransitEntity[];
+  pendingEdgeArrivals: PendingItems;
+  pendingCloudCompletions: PendingItems;
+  pendingMeshCompletions: PendingItems;
+  pendingOutboundHandshakes: PendingOutboundHandshakes;
+  visualEdgeTotalCount: number;
+  visualEdgeAnomalyCount: number;
+  visualCentralCount: number;
+
   initialize: () => void;
   beginClearing: () => void;
   finishClearing: () => void;
@@ -91,15 +131,20 @@ export interface PipelineState {
   advanceTransit: (delta: number) => void;
   toggleMeshUnload: () => void;
   drainMeshStep: () => void;
-  completeAnomalyTransit: (tokenId: string) => void;
+  completeIngestTransit: (entityId: string) => void;
+  completeCloudTransit: (entityId: string) => void;
+  completeMeshTransit: (entityId: string) => void;
 
-  // Actions driven by SSE events from backend
   applyTelemetry: (point: DataPoint) => void;
   applyEdgeUpdate: (data: EdgeUpdatePayload) => void;
   applyCentralUpdate: (data: CentralUpdatePayload) => void;
   applyCompaction: (data: CompactionPayload) => void;
   applyMetrics: (data: Metrics) => void;
   applySystemStatus: (data: SystemStatus) => void;
+}
+
+function scheduleStoreAction(delayMs: number, action: () => void) {
+  globalThis.setTimeout(action, delayMs);
 }
 
 export const usePipelineStore = create<PipelineState>((set, get) => ({
@@ -111,19 +156,25 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   introComplete: false,
   compactionLogs: [],
   compactionCount: 0,
-  anomalyTransitTokens: [],
 
   perTurbineHistory: { 1: [], 2: [], 3: [] },
   totalPacketsEmitted: 0,
   totalAnomalies: 0,
   lastSyncTimestamp: null,
   edgePressure: 0,
-  visualEdgeAnomalyCount: 0,
-  pendingVisualEdgeAnomalyArrivals: 0,
   lastDrainedItemId: null,
   compactionFlashId: null,
 
-  // ---- UI-only actions ----
+  ingestEntities: [],
+  cloudEntities: [],
+  meshEntities: [],
+  pendingEdgeArrivals: {},
+  pendingCloudCompletions: {},
+  pendingMeshCompletions: {},
+  pendingOutboundHandshakes: {},
+  visualEdgeTotalCount: 0,
+  visualEdgeAnomalyCount: 0,
+  visualCentralCount: 0,
 
   initialize: () => set({ isInitialized: true, systemState: "idle" }),
   beginClearing: () => set({ systemState: "clearing" }),
@@ -138,16 +189,23 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       centralStorage: [],
       compactionLogs: [],
       compactionCount: 0,
-      anomalyTransitTokens: [],
       perTurbineHistory: { 1: [], 2: [], 3: [] },
       totalPacketsEmitted: 0,
       totalAnomalies: 0,
       lastSyncTimestamp: null,
       edgePressure: 0,
-      visualEdgeAnomalyCount: 0,
-      pendingVisualEdgeAnomalyArrivals: 0,
       lastDrainedItemId: null,
       compactionFlashId: null,
+      ingestEntities: [],
+      cloudEntities: [],
+      meshEntities: [],
+      pendingEdgeArrivals: {},
+      pendingCloudCompletions: {},
+      pendingMeshCompletions: {},
+      pendingOutboundHandshakes: {},
+      visualEdgeTotalCount: 0,
+      visualEdgeAnomalyCount: 0,
+      visualCentralCount: 0,
       systemState: s.systemState === "clearing" ? "clearing" : s.systemState,
       transportState:
         s.transportState === "offline_mesh_unloading"
@@ -160,26 +218,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   advanceTransit: (delta) => {
     void delta;
   },
-
-  completeAnomalyTransit: (tokenId) =>
-    set((s) => {
-      const tokenExists = s.anomalyTransitTokens.some((token) => token.id === tokenId);
-      if (!tokenExists) {
-        return {};
-      }
-
-      return {
-        anomalyTransitTokens: s.anomalyTransitTokens.filter((token) => token.id !== tokenId),
-        visualEdgeAnomalyCount:
-          s.pendingVisualEdgeAnomalyArrivals > 0
-            ? s.visualEdgeAnomalyCount + 1
-            : s.visualEdgeAnomalyCount,
-        pendingVisualEdgeAnomalyArrivals:
-          s.pendingVisualEdgeAnomalyArrivals > 0
-            ? s.pendingVisualEdgeAnomalyArrivals - 1
-            : 0,
-      };
-    }),
 
   toggleMeshUnload: () =>
     set((s) => ({
@@ -199,30 +237,172 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           : {};
       }
 
-      const removedItem = s.edgeStorage[0];
-      const nextEdgeStorage = s.edgeStorage.slice(1);
+      const meshDrainIndex = findMeshDrainIndex(s.edgeStorage);
+      const item = s.edgeStorage[meshDrainIndex];
+      const itemId = getRuntimeItemId(item);
+      const entityId = `mesh_${getRuntimeItemId(item)}_${Date.now()}`;
+      const nextEdgeStorage = s.edgeStorage.filter((_, index) => index !== meshDrainIndex);
       const nextPressure = nextEdgeStorage.length >= COMPACTION_THRESHOLD * 0.5
-        ? Math.min(1, (nextEdgeStorage.length - COMPACTION_THRESHOLD * 0.5) / (EDGE_CAPACITY - COMPACTION_THRESHOLD * 0.5))
-        : 0;
-      const nextVisualCounts = isAnomalyItem(removedItem)
-        ? consumeVisualAnomalyCounts(
-            s.visualEdgeAnomalyCount,
-            s.pendingVisualEdgeAnomalyArrivals,
+        ? Math.min(
+            1,
+            (nextEdgeStorage.length - COMPACTION_THRESHOLD * 0.5) /
+              (EDGE_CAPACITY - COMPACTION_THRESHOLD * 0.5),
           )
-        : {
-            visualEdgeAnomalyCount: s.visualEdgeAnomalyCount,
-            pendingVisualEdgeAnomalyArrivals: s.pendingVisualEdgeAnomalyArrivals,
-          };
+        : 0;
+
+      const pendingOutboundHandshakes = { ...s.pendingOutboundHandshakes };
+      let meshEntities = s.meshEntities;
+      let pendingMeshCompletions = s.pendingMeshCompletions;
+
+      if (s.pendingEdgeArrivals[itemId]) {
+        pendingOutboundHandshakes[itemId] = {
+          entityId,
+          channel: "mesh",
+          item,
+          durationMs: MESH_TRANSIT_MS,
+        };
+      } else {
+        meshEntities = [
+          ...s.meshEntities,
+          {
+            id: entityId,
+            channel: "mesh",
+            kind: getItemKind(item),
+          },
+        ];
+        pendingMeshCompletions = {
+          ...s.pendingMeshCompletions,
+          [entityId]: item,
+        };
+        scheduleOutboundCompletion("mesh", MESH_TRANSIT_MS, entityId, get);
+      }
 
       return {
         edgeStorage: nextEdgeStorage,
         edgePressure: nextPressure,
-        ...nextVisualCounts,
+        meshEntities,
+        pendingMeshCompletions,
+        pendingOutboundHandshakes,
         transportState: nextEdgeStorage.length > 0 ? "offline_mesh_unloading" : "offline_buffering",
       };
     }),
 
-  // ---- SSE event handlers ----
+  completeIngestTransit: (entityId) =>
+    set((s) => {
+      const item = s.pendingEdgeArrivals[entityId];
+      const ingestEntities = s.ingestEntities.filter((entity) => entity.id !== entityId);
+      if (!item) {
+        return { ingestEntities };
+      }
+
+      const pendingEdgeArrivals = { ...s.pendingEdgeArrivals };
+      delete pendingEdgeArrivals[entityId];
+
+      const pendingOutboundHandshakes = { ...s.pendingOutboundHandshakes };
+      const deferredOutbound = pendingOutboundHandshakes[entityId];
+      if (deferredOutbound) {
+        delete pendingOutboundHandshakes[entityId];
+      }
+
+      let cloudEntities = s.cloudEntities;
+      let meshEntities = s.meshEntities;
+      let pendingCloudCompletions = s.pendingCloudCompletions;
+      let pendingMeshCompletions = s.pendingMeshCompletions;
+
+      if (deferredOutbound?.channel === "cloud") {
+        cloudEntities = [
+          ...s.cloudEntities,
+          {
+            id: deferredOutbound.entityId,
+            channel: "cloud",
+            kind: getItemKind(deferredOutbound.item),
+          },
+        ];
+        pendingCloudCompletions = {
+          ...s.pendingCloudCompletions,
+          [deferredOutbound.entityId]: deferredOutbound.item,
+        };
+        scheduleOutboundCompletion("cloud", deferredOutbound.durationMs, deferredOutbound.entityId, get);
+      }
+
+      if (deferredOutbound?.channel === "mesh") {
+        meshEntities = [
+          ...s.meshEntities,
+          {
+            id: deferredOutbound.entityId,
+            channel: "mesh",
+            kind: getItemKind(deferredOutbound.item),
+          },
+        ];
+        pendingMeshCompletions = {
+          ...s.pendingMeshCompletions,
+          [deferredOutbound.entityId]: deferredOutbound.item,
+        };
+        scheduleOutboundCompletion("mesh", deferredOutbound.durationMs, deferredOutbound.entityId, get);
+      }
+
+      return {
+        ingestEntities,
+        pendingEdgeArrivals,
+        pendingOutboundHandshakes,
+        cloudEntities,
+        meshEntities,
+        pendingCloudCompletions,
+        pendingMeshCompletions,
+        visualEdgeTotalCount: s.visualEdgeTotalCount + 1,
+        visualEdgeAnomalyCount:
+          getItemKind(item) === "anomaly"
+            ? s.visualEdgeAnomalyCount + 1
+            : s.visualEdgeAnomalyCount,
+      };
+    }),
+
+  completeCloudTransit: (entityId) =>
+    set((s) => {
+      const item = s.pendingCloudCompletions[entityId];
+      const cloudEntities = s.cloudEntities.filter((entity) => entity.id !== entityId);
+      if (!item) {
+        return { cloudEntities };
+      }
+
+      const pendingCloudCompletions = { ...s.pendingCloudCompletions };
+      delete pendingCloudCompletions[entityId];
+      const itemKind = getItemKind(item);
+
+      return {
+        cloudEntities,
+        pendingCloudCompletions,
+        visualEdgeTotalCount: Math.max(0, s.visualEdgeTotalCount - 1),
+        visualEdgeAnomalyCount:
+          itemKind === "anomaly"
+            ? Math.max(0, s.visualEdgeAnomalyCount - 1)
+            : s.visualEdgeAnomalyCount,
+        visualCentralCount: s.visualCentralCount + 1,
+      };
+    }),
+
+  completeMeshTransit: (entityId) =>
+    set((s) => {
+      const item = s.pendingMeshCompletions[entityId];
+      const meshEntities = s.meshEntities.filter((entity) => entity.id !== entityId);
+      if (!item) {
+        return { meshEntities };
+      }
+
+      const pendingMeshCompletions = { ...s.pendingMeshCompletions };
+      delete pendingMeshCompletions[entityId];
+      const itemKind = getItemKind(item);
+
+      return {
+        meshEntities,
+        pendingMeshCompletions,
+        visualEdgeTotalCount: Math.max(0, s.visualEdgeTotalCount - 1),
+        visualEdgeAnomalyCount:
+          itemKind === "anomaly"
+            ? Math.max(0, s.visualEdgeAnomalyCount - 1)
+            : s.visualEdgeAnomalyCount,
+      };
+    }),
 
   applyTelemetry: (point) =>
     set((s) => {
@@ -230,66 +410,105 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       const turbineHist = [...(history[point.sourceTurbine] || []), point];
       if (turbineHist.length > 30) turbineHist.shift();
       history[point.sourceTurbine] = turbineHist;
-      const nextState: Partial<PipelineState> = {
+
+      const entity: TransitEntity = {
+        id: point.id,
+        channel: "ingest",
+        kind: point.type,
+        turbineId: point.sourceTurbine,
+      };
+
+      scheduleStoreAction(INGEST_TRANSIT_MS, () => {
+        get().completeIngestTransit(point.id);
+      });
+
+      return {
         perTurbineHistory: history,
         totalPacketsEmitted: s.totalPacketsEmitted + 1,
         totalAnomalies: s.totalAnomalies + (point.type === "anomaly" ? 1 : 0),
+        ingestEntities: [...s.ingestEntities, entity],
       };
-
-      if (point.type === "anomaly") {
-        const tokenId = `anomaly_${point.id}_${point.timestamp}`;
-        nextState.anomalyTransitTokens = [
-          ...s.anomalyTransitTokens,
-          { id: tokenId, turbineId: point.sourceTurbine },
-        ];
-        nextState.pendingVisualEdgeAnomalyArrivals =
-          s.pendingVisualEdgeAnomalyArrivals + 1;
-
-        globalThis.setTimeout(() => {
-          get().completeAnomalyTransit(tokenId);
-        }, ANOMALY_PIPELINE_TRAVEL_MS);
-      }
-
-      return nextState;
     }),
 
   applyEdgeUpdate: (data) =>
     set((s) => ({
       edgeStorage: [...s.edgeStorage.slice(-(EDGE_CAPACITY - 1)), data.item],
       edgePressure: data.pressure,
+      pendingEdgeArrivals: {
+        ...s.pendingEdgeArrivals,
+        [getRuntimeItemId(data.item)]: data.item,
+      },
     })),
 
   applyCentralUpdate: (data) =>
     set((s) => {
-      const id =
-        "id" in data.item
-          ? (data.item as DataPoint).id
-          : `drain_${Date.now()}`;
-      const nextVisualCounts = isAnomalyItem(data.item)
-        ? consumeVisualAnomalyCounts(
-            s.visualEdgeAnomalyCount,
-            s.pendingVisualEdgeAnomalyArrivals,
-          )
-        : {
-            visualEdgeAnomalyCount: s.visualEdgeAnomalyCount,
-            pendingVisualEdgeAnomalyArrivals: s.pendingVisualEdgeAnomalyArrivals,
-          };
+      const entityId = `cloud_${getRuntimeItemId(data.item)}_${Date.now()}`;
+      const itemId = getRuntimeItemId(data.item);
+      const duration =
+        s.transportState === "online_recovery"
+          ? RECOVERY_SYNC_INTERVAL_MS * 6
+          : CLOUD_TRANSIT_MS;
+      const pendingOutboundHandshakes = { ...s.pendingOutboundHandshakes };
+      let cloudEntities = s.cloudEntities;
+      let pendingCloudCompletions = s.pendingCloudCompletions;
+
+      if (s.pendingEdgeArrivals[itemId]) {
+        pendingOutboundHandshakes[itemId] = {
+          entityId,
+          channel: "cloud",
+          item: data.item,
+          durationMs: duration,
+        };
+      } else {
+        cloudEntities = [
+          ...s.cloudEntities,
+          {
+            id: entityId,
+            channel: "cloud",
+            kind: getItemKind(data.item),
+          },
+        ];
+        pendingCloudCompletions = {
+          ...s.pendingCloudCompletions,
+          [entityId]: data.item,
+        };
+        scheduleOutboundCompletion("cloud", duration, entityId, get);
+      }
+
       return {
         centralStorage: [...s.centralStorage, data.item],
         lastSyncTimestamp: data.lastSyncTimestamp,
-        lastDrainedItemId: id,
+        lastDrainedItemId: entityId,
         edgeStorage: s.edgeStorage.slice(1),
         edgePressure: Math.max(0, s.edgePressure - 0.04),
-        ...nextVisualCounts,
+        cloudEntities,
+        pendingCloudCompletions,
+        pendingOutboundHandshakes,
       };
     }),
 
   applyCompaction: (data) =>
-    set({
-      edgeStorage: data.edgeStorage,
-      compactionLogs: [...get().compactionLogs, data.log],
-      compactionCount: data.compactionCount,
-      compactionFlashId: `compact_${Date.now()}`,
+    set((s) => {
+      const arrivedEdgeIds = new Set(Object.keys(s.pendingEdgeArrivals));
+      const snapshotPointIds = new Set(
+        data.edgeStorage
+          .filter((item): item is DataPoint => isDataPoint(item))
+          .map((item) => item.id),
+      );
+
+      return {
+        edgeStorage: data.edgeStorage,
+        compactionLogs: [...s.compactionLogs, data.log],
+        compactionCount: data.compactionCount,
+        compactionFlashId: `compact_${Date.now()}`,
+        visualEdgeTotalCount: data.edgeStorage.length,
+        visualEdgeAnomalyCount: countAnomalies(data.edgeStorage),
+        pendingEdgeArrivals: {},
+        pendingOutboundHandshakes: {},
+        ingestEntities: s.ingestEntities.filter(
+          (entity) => !arrivedEdgeIds.has(entity.id) && !snapshotPointIds.has(entity.id),
+        ),
+      };
     }),
 
   applyMetrics: (data) =>
@@ -303,9 +522,17 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
 
   applySystemStatus: (data) =>
     set((s) => ({
-      systemState: data.isRunning ? "running" : data.isInitialized ? (s.systemState === "clearing" ? "clearing" : "idle") : "boot",
+      systemState: data.isRunning
+        ? "running"
+        : data.isInitialized
+          ? s.systemState === "clearing"
+            ? "clearing"
+            : "idle"
+          : "boot",
       transportState: data.isOnline
-        ? (data.isRecoverySyncActive ? "online_recovery" : "online_steady")
+        ? data.isRecoverySyncActive
+          ? "online_recovery"
+          : "online_steady"
         : s.transportState === "offline_mesh_unloading"
           ? "offline_mesh_unloading"
           : "offline_buffering",
@@ -320,6 +547,7 @@ export const selectIsMeshUnloadActive = (s: PipelineState) => s.transportState =
 export const selectCanStart = (s: PipelineState) => s.systemState === "idle";
 export const selectCanStop = (s: PipelineState) => s.systemState === "running";
 export const selectCanClear = (s: PipelineState) => s.systemState !== "clearing";
-export const selectCanToggleLink = (s: PipelineState) => s.systemState === "running" || s.systemState === "idle";
+export const selectCanToggleLink = (s: PipelineState) =>
+  s.systemState === "running" || s.systemState === "idle";
 export const selectCanMeshUnload = (s: PipelineState) =>
   s.transportState === "offline_buffering" || s.transportState === "offline_mesh_unloading";

@@ -488,7 +488,7 @@ class SimulationEngine:
         self._publish("system_status", self.get_status_dict())
 
     def inject_anomaly(self, turbine_id: int) -> None:
-        self.queued_anomaly_turbines.append(turbine_id)
+        self.queued_anomaly_turbines.extend([turbine_id] * 5)
 
     def clear_anomaly(self, turbine_id: int) -> None:
         self.queued_anomaly_turbines = [

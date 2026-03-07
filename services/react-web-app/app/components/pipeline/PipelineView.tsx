@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import { isDataPoint } from "~/types/edgeguard";
 import {
   EDGE_CAPACITY,
   selectIsMeshUnloadActive,
@@ -43,14 +42,14 @@ function getPipelineLayout() {
 
 function WindmillMark({
   active,
-  anomaly,
+  highlighted,
 }: {
   active: boolean;
-  anomaly: boolean;
+  highlighted: boolean;
 }) {
   const stroke = !active
     ? "var(--eg-muted)"
-    : anomaly
+    : highlighted
       ? "var(--eg-anomaly)"
       : "var(--eg-flow)";
 
@@ -59,42 +58,24 @@ function WindmillMark({
       <g fill="none" stroke={stroke} strokeLinecap="round" strokeLinejoin="round">
         <line x1="20" y1="18" x2="20" y2="33" strokeWidth="1.8" />
         <circle cx="20" cy="16" r="2.2" fill={stroke} stroke="none" opacity={active ? 0.9 : 0.45} />
-        <line x1="20" y1="16" x2="20" y2="4" strokeWidth="1.8">
-          {active ? (
-            <animateTransform
-              attributeName="transform"
-              type="rotate"
-              from="0 20 16"
-              to="360 20 16"
-              dur={anomaly ? "0.9s" : "2.6s"}
-              repeatCount="indefinite"
-            />
-          ) : null}
-        </line>
-        <line x1="20" y1="16" x2="10" y2="23" strokeWidth="1.8">
-          {active ? (
-            <animateTransform
-              attributeName="transform"
-              type="rotate"
-              from="0 20 16"
-              to="360 20 16"
-              dur={anomaly ? "0.9s" : "2.6s"}
-              repeatCount="indefinite"
-            />
-          ) : null}
-        </line>
-        <line x1="20" y1="16" x2="30" y2="23" strokeWidth="1.8">
-          {active ? (
-            <animateTransform
-              attributeName="transform"
-              type="rotate"
-              from="0 20 16"
-              to="360 20 16"
-              dur={anomaly ? "0.9s" : "2.6s"}
-              repeatCount="indefinite"
-            />
-          ) : null}
-        </line>
+        {[
+          { x2: 20, y2: 4 },
+          { x2: 10, y2: 23 },
+          { x2: 30, y2: 23 },
+        ].map((blade) => (
+          <line key={`${blade.x2}-${blade.y2}`} x1="20" y1="16" x2={blade.x2} y2={blade.y2} strokeWidth="1.8">
+            {active ? (
+              <animateTransform
+                attributeName="transform"
+                type="rotate"
+                from="0 20 16"
+                to="360 20 16"
+                dur={highlighted ? "0.9s" : "2.6s"}
+                repeatCount="indefinite"
+              />
+            ) : null}
+          </line>
+        ))}
       </g>
     </svg>
   );
@@ -106,7 +87,7 @@ function TurbineStageCard({
   title,
   status,
   power,
-  anomalyActive,
+  highlighted,
   isRunning,
 }: {
   x: number;
@@ -114,7 +95,7 @@ function TurbineStageCard({
   title: string;
   status: string;
   power: number;
-  anomalyActive: boolean;
+  highlighted: boolean;
   isRunning: boolean;
 }) {
   return (
@@ -138,14 +119,14 @@ function TurbineStageCard({
           <div className="mt-1 text-[12px] font-medium text-[var(--eg-text)]">{status}</div>
         </div>
         <div className="shrink-0">
-          <WindmillMark active={isRunning} anomaly={anomalyActive} />
+          <WindmillMark active={isRunning} highlighted={highlighted} />
         </div>
       </div>
       <div className="mt-3 flex items-end justify-between gap-3">
         <span className="text-[11px] uppercase tracking-[0.06em] text-[var(--eg-text-dim)]">Power</span>
         <span
           className="font-mono text-[15px] font-semibold"
-          style={{ color: anomalyActive ? "var(--eg-anomaly)" : "var(--eg-text)" }}
+          style={{ color: highlighted ? "var(--eg-anomaly)" : "var(--eg-text)" }}
         >
           {Math.round(power)} kW
         </span>
@@ -154,27 +135,68 @@ function TurbineStageCard({
   );
 }
 
+function FlowStroke({
+  path,
+  color,
+  width,
+  active,
+  duration,
+  dashArray = "12 12",
+  opacity = 0.9,
+}: {
+  path: string;
+  color: string;
+  width: number;
+  active: boolean;
+  duration: string;
+  dashArray?: string;
+  opacity?: number;
+}) {
+  return (
+    <path
+      d={path}
+      fill="none"
+      stroke={color}
+      strokeWidth={width}
+      strokeLinecap="round"
+      strokeDasharray={dashArray}
+      opacity={opacity}
+      className={`eg-flow-stroke ${active ? "eg-flow-running" : "eg-flow-paused"}`}
+      style={{ animationDuration: duration }}
+    >
+    </path>
+  );
+}
+
 function PipelineDiagram({
   isRunning,
   isOnline,
   isRecoverySyncActive,
   isMeshUnloadActive,
-  anomalyTransitTokens,
-  edgeRatio,
-  edgeCount,
-  edgeAnomalyCount,
-  cloudCount,
+  ingestEntityCounts,
+  anomalyIngestTurbines,
+  cloudEntityCount,
+  hasCloudAnomaly,
+  meshEntityCount,
+  hasMeshAnomaly,
+  visualEdgeTotalCount,
+  visualEdgeAnomalyCount,
+  visualCentralCount,
   compactionCount,
 }: {
   isRunning: boolean;
   isOnline: boolean;
   isRecoverySyncActive: boolean;
   isMeshUnloadActive: boolean;
-  anomalyTransitTokens: { id: string; turbineId: number }[];
-  edgeRatio: number;
-  edgeCount: number;
-  edgeAnomalyCount: number;
-  cloudCount: number;
+  ingestEntityCounts: Record<number, number>;
+  anomalyIngestTurbines: Set<number>;
+  cloudEntityCount: number;
+  hasCloudAnomaly: boolean;
+  meshEntityCount: number;
+  hasMeshAnomaly: boolean;
+  visualEdgeTotalCount: number;
+  visualEdgeAnomalyCount: number;
+  visualCentralCount: number;
   compactionCount: number;
 }) {
   const layout = getPipelineLayout();
@@ -196,26 +218,27 @@ function PipelineDiagram({
   const laneEndX = cloudDbX - 50;
   const pathIngest = `M ${laneStartX} ${feederTargetY} L ${laneMidX} ${feederTargetY}`;
   const pathSync = `M ${laneResumeX} ${feederTargetY} L ${laneEndX} ${feederTargetY}`;
-  const conveyorDotDur = "2.2s";
-  const recoveryDotDur = "0.9s";
-  const syncDotDur = isRecoverySyncActive ? recoveryDotDur : conveyorDotDur;
+  const feederFlowDur = "1.1s";
+  const ingestFlowDur = "1.0s";
+  const syncFlowDur = isRecoverySyncActive ? "0.45s" : "0.9s";
+  const meshFlowDur = "0.9s";
   const tankInnerWidth = 68;
   const tankInnerHeight = 108;
   const tankBottomY = 54;
-  const edgeFillHeight = Math.max(0, edgeRatio * tankInnerHeight);
+  const visualEdgeRatio = Math.min(1, visualEdgeTotalCount / EDGE_CAPACITY);
+  const edgeFillHeight = Math.max(0, visualEdgeRatio * tankInnerHeight);
   const edgeFillTopY = tankBottomY - edgeFillHeight;
-  const anomalyLayerHeight = edgeCount > 0 && edgeAnomalyCount > 0
-    ? Math.min(edgeFillHeight, Math.max(8, edgeFillHeight * (edgeAnomalyCount / edgeCount)))
+  const anomalyLayerHeight = visualEdgeAnomalyCount > 0
+    ? Math.min(
+        edgeFillHeight,
+        (Math.min(visualEdgeAnomalyCount, EDGE_CAPACITY) / EDGE_CAPACITY) * tankInnerHeight,
+      )
     : 0;
   const normalLayerHeight = Math.max(0, edgeFillHeight - anomalyLayerHeight);
   const normalLayerY = edgeFillTopY + anomalyLayerHeight;
-  const anomalyTurbineIds = new Set(anomalyTransitTokens.map((token) => token.turbineId));
   const feederPaths = turbineCenterYs.map(
     (y) =>
       `M ${turbineCenterX} ${y} C ${turbineCenterX + 56} ${y}, ${feederTargetX - 54} ${feederTargetY}, ${feederTargetX} ${feederTargetY}`,
-  );
-  const anomalyTravelPaths = feederPaths.map(
-    (path) => `${path} L ${laneMidX} ${feederTargetY}`,
   );
 
   return (
@@ -242,67 +265,59 @@ function PipelineDiagram({
         </clipPath>
       </defs>
 
-      {feederPaths.map((path, index) => {
-        const highlighted = anomalyTurbineIds.has(index + 1);
-        return (
-          <g key={path}>
-            <path
-              d={path}
-              fill="none"
-              stroke={highlighted ? "rgba(249, 59, 24, 0.30)" : "rgba(32, 113, 181, 0.18)"}
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-            {isRunning ? (
-              <circle r="3.2" fill="var(--eg-flow)">
-                <animateMotion dur="1.4s" repeatCount="indefinite" path={path} />
-              </circle>
-            ) : null}
-          </g>
-        );
-      })}
+      {feederPaths.map((path, index) => (
+        <g key={path}>
+          <path
+            d={path}
+            fill="none"
+            stroke="rgba(32, 113, 181, 0.18)"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          <FlowStroke
+            path={path}
+            color={anomalyIngestTurbines.has(index + 1) ? "var(--eg-anomaly)" : "var(--eg-flow)"}
+            width={2.4}
+            active={isRunning}
+            duration={feederFlowDur}
+            dashArray="10 14"
+            opacity={0.95}
+          />
+        </g>
+      ))}
 
-      <path d={pathIngest} fill="none" stroke="url(#belt-body)" strokeWidth="18" strokeLinecap="round" />
-      <path d={pathIngest} fill="none" stroke="rgba(30, 50, 79, 0.08)" strokeWidth="18" strokeLinecap="round" transform="translate(0 1.5)" />
-      <path d={pathIngest} fill="none" stroke="url(#lane-blue)" strokeWidth="10" strokeLinecap="round" />
-      <path d={pathIngest} fill="none" stroke="rgba(255,255,255,0.58)" strokeWidth="2.5" strokeLinecap="round" transform="translate(0 -3)" />
-      {isRunning ? (
-        <circle r="5" fill="var(--eg-flow)">
-          <animateMotion dur={conveyorDotDur} repeatCount="indefinite" path={pathIngest} />
-        </circle>
-      ) : null}
+      <path d={pathIngest} fill="none" stroke="rgba(32, 113, 181, 0.18)" strokeWidth="2" strokeLinecap="round" />
+      <FlowStroke
+        path={pathIngest}
+        color={anomalyIngestTurbines.size > 0 ? "var(--eg-anomaly)" : "var(--eg-flow)"}
+        width={2.4}
+        active={isRunning}
+        duration={ingestFlowDur}
+        dashArray="10 14"
+      />
+      <path d={pathSync} fill="none" stroke="rgba(32, 113, 181, 0.18)" strokeWidth="2" strokeLinecap="round" />
       <path
         d={pathSync}
         fill="none"
-        stroke="url(#belt-body)"
-        strokeWidth="18"
+        stroke={
+          isOnline
+            ? "rgba(32, 113, 181, 0.18)"
+            : isRunning
+              ? "rgba(249, 59, 24, 0.22)"
+              : "rgba(194, 207, 218, 0.72)"
+        }
+        strokeWidth="2"
         strokeLinecap="round"
+        strokeDasharray={isOnline ? undefined : "10 10"}
       />
-      <path
-        d={pathSync}
-        fill="none"
-        stroke="rgba(30, 50, 79, 0.08)"
-        strokeWidth="18"
-        strokeLinecap="round"
-        transform="translate(0 1.5)"
+      <FlowStroke
+        path={pathSync}
+        color={hasCloudAnomaly ? "var(--eg-anomaly)" : "var(--eg-flow)"}
+        width={2.4}
+        active={isRunning && isOnline}
+        duration={syncFlowDur}
+        dashArray="10 14"
       />
-      <path
-        d={pathSync}
-        fill="none"
-        stroke={isOnline ? "url(#lane-blue)" : "url(#lane-red)"}
-        strokeWidth="10"
-        strokeLinecap="round"
-        strokeDasharray={isOnline ? undefined : "16 12"}
-      />
-      {isOnline ? (
-        <path d={pathSync} fill="none" stroke="rgba(255,255,255,0.58)" strokeWidth="2.5" strokeLinecap="round" transform="translate(0 -3)" />
-      ) : null}
-      {isRunning && isOnline ? (
-        <circle r="5" fill={isOnline ? "var(--eg-flow)" : "var(--eg-anomaly)"}>
-          <animateMotion dur={syncDotDur} repeatCount="indefinite" path={pathSync} />
-        </circle>
-      ) : null}
-
       <g transform={`translate(${aiX}, ${SCENE.stageY})`}>
         {isRunning ? (
           <circle cx="0" cy="0" r="32" fill="none" stroke="var(--eg-flow)" strokeWidth="0.7" opacity="0.14">
@@ -313,7 +328,7 @@ function PipelineDiagram({
         <polygon
           points="0,-18 15,-9 15,9 0,18 -15,9 -15,-9"
           fill="var(--eg-surface)"
-          stroke={anomalyTransitTokens.length > 0 ? "var(--eg-anomaly)" : "var(--eg-flow)"}
+          stroke="var(--eg-flow)"
           strokeWidth="1.4"
           opacity={isRunning ? 1 : 0.42}
         />
@@ -324,15 +339,8 @@ function PipelineDiagram({
         <text x="0" y="38" textAnchor="middle" fill="var(--eg-text-dim)" fontSize="11" fontWeight="600">
           EDGE AI
         </text>
-        <text
-          x="0"
-          y="52"
-          textAnchor="middle"
-          fill={anomalyTransitTokens.length > 0 ? "var(--eg-anomaly)" : "var(--eg-flow)"}
-          fontSize="9"
-          fontWeight="600"
-        >
-          {anomalyTransitTokens.length > 0 ? "ANOMALY INGRESS" : isRunning ? "SCORING LIVE" : "MODEL IDLE"}
+        <text x="0" y="52" textAnchor="middle" fill="var(--eg-flow)" fontSize="9" fontWeight="600">
+          {isRunning ? "SCORING LIVE" : "MODEL IDLE"}
         </text>
       </g>
 
@@ -344,11 +352,11 @@ function PipelineDiagram({
           height="116"
           rx="10"
           fill="rgba(255,255,255,0.78)"
-          stroke={edgeRatio > 0.7 ? "var(--eg-alert)" : "var(--eg-border-bright)"}
+          stroke={visualEdgeRatio > 0.7 ? "var(--eg-alert)" : "var(--eg-border-bright)"}
           strokeWidth="1.5"
         />
         <g clipPath="url(#edge-tank-fill-clip)">
-          {edgeAnomalyCount > 0 ? (
+          {visualEdgeAnomalyCount > 0 ? (
             <>
               {normalLayerHeight > 0 ? (
                 <rect
@@ -356,7 +364,7 @@ function PipelineDiagram({
                   y={normalLayerY}
                   width={tankInnerWidth}
                   height={normalLayerHeight}
-                  fill={edgeRatio > 0.7 ? "rgba(255, 218, 0, 0.24)" : "rgba(32, 113, 181, 0.18)"}
+                  fill={visualEdgeRatio > 0.7 ? "rgba(255, 218, 0, 0.24)" : "rgba(32, 113, 181, 0.18)"}
                 />
               ) : null}
               <rect
@@ -368,16 +376,14 @@ function PipelineDiagram({
               />
             </>
           ) : (
-            <>
-              <rect
-                x="-34"
-                y={edgeFillTopY}
-                width={tankInnerWidth}
-                height={edgeFillHeight}
-                rx="8"
-                fill={edgeRatio > 0.7 ? "rgba(255, 218, 0, 0.24)" : "rgba(32, 113, 181, 0.18)"}
-              />
-            </>
+            <rect
+              x="-34"
+              y={edgeFillTopY}
+              width={tankInnerWidth}
+              height={edgeFillHeight}
+              rx="8"
+              fill={visualEdgeRatio > 0.7 ? "rgba(255, 218, 0, 0.24)" : "rgba(32, 113, 181, 0.18)"}
+            />
           )}
         </g>
         <text x="0" y="80" textAnchor="middle" fill="var(--eg-text-dim)" fontSize="11" fontWeight="600">
@@ -387,54 +393,29 @@ function PipelineDiagram({
           x="0"
           y="94"
           textAnchor="middle"
-          fill={edgeRatio > 0.7 ? "var(--eg-alert)" : "var(--eg-flow)"}
+          fill={visualEdgeRatio > 0.7 ? "var(--eg-alert)" : "var(--eg-flow)"}
           fontSize="10"
           fontWeight="700"
         >
-          {edgeCount}/{EDGE_CAPACITY}
+          {visualEdgeTotalCount}/{EDGE_CAPACITY}
         </text>
       </g>
 
       <path
         d={meshPath}
         fill="none"
-        stroke="url(#belt-body)"
-        strokeWidth="14"
-        strokeLinecap="round"
-      />
-      <path
-        d={meshPath}
-        fill="none"
-        stroke="rgba(30, 50, 79, 0.08)"
-        strokeWidth="14"
-        strokeLinecap="round"
-        transform="translate(0 1.2)"
-      />
-      <path
-        d={meshPath}
-        fill="none"
-        stroke={isMeshUnloadActive ? "rgba(61, 192, 124, 0.40)" : "rgba(194, 207, 218, 0.7)"}
-        strokeWidth="8"
-        strokeLinecap="round"
-      />
-      <path
-        d={meshPath}
-        fill="none"
-        stroke={isMeshUnloadActive ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.3)"}
+        stroke={isMeshUnloadActive ? "rgba(61, 192, 124, 0.24)" : "rgba(194, 207, 218, 0.7)"}
         strokeWidth="2"
         strokeLinecap="round"
-        transform="translate(0 -2)"
       />
-      {isRunning && isMeshUnloadActive ? (
-        <>
-          <circle r="4.8" fill="var(--eg-ok)">
-            <animateMotion dur="0.9s" repeatCount="indefinite" path={meshPath} />
-          </circle>
-          <circle r="3.5" fill="var(--eg-flow)">
-            <animateMotion dur="0.9s" repeatCount="indefinite" path={meshPath} />
-          </circle>
-        </>
-      ) : null}
+      <FlowStroke
+        path={meshPath}
+        color={hasMeshAnomaly ? "var(--eg-anomaly)" : "var(--eg-ok)"}
+        width={2.4}
+        active={isRunning && isMeshUnloadActive}
+        duration={meshFlowDur}
+        dashArray="10 12"
+      />
 
       <g transform={`translate(${meshX}, ${meshY})`}>
         <rect
@@ -476,11 +457,15 @@ function PipelineDiagram({
               strokeLinejoin="round"
               opacity="0.68"
             />
-            <circle cx="-16" cy="8" r="2.4" fill="var(--eg-muted)" opacity="0.68" />
-            <circle cx="-6" cy="-2" r="2.4" fill="var(--eg-muted)" opacity="0.68" />
-            <circle cx="0" cy="4" r="2.4" fill="var(--eg-muted)" opacity="0.68" />
-            <circle cx="12" cy="-10" r="2.4" fill="var(--eg-muted)" opacity="0.68" />
-            <circle cx="18" cy="-4" r="2.4" fill="var(--eg-muted)" opacity="0.68" />
+            {[
+              [-16, 8],
+              [-6, -2],
+              [0, 4],
+              [12, -10],
+              [18, -4],
+            ].map(([cx, cy]) => (
+              <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="2.4" fill="var(--eg-muted)" opacity="0.68" />
+            ))}
           </>
         )}
         <text x="0" y="34" textAnchor="middle" fill="var(--eg-text-dim)" fontSize="11" fontWeight="600">
@@ -492,25 +477,25 @@ function PipelineDiagram({
         <path
           d="M -22 4 Q -12 -12 0 -12 Q 12 -12 22 4"
           fill="none"
-          stroke={isOnline ? "var(--eg-border-bright)" : "var(--eg-anomaly)"}
+          stroke={isOnline ? "var(--eg-border-bright)" : isRunning ? "var(--eg-anomaly)" : "var(--eg-muted)"}
           strokeWidth="4"
           strokeLinecap="round"
-          opacity={isOnline ? 1 : 0.92}
+          opacity={isOnline ? 1 : isRunning ? 0.92 : 0.7}
         />
         <path
           d="M -14 4 Q -8 -4 0 -4 Q 8 -4 14 4"
           fill="none"
-          stroke={isOnline ? "var(--eg-border-bright)" : "var(--eg-anomaly)"}
+          stroke={isOnline ? "var(--eg-border-bright)" : isRunning ? "var(--eg-anomaly)" : "var(--eg-muted)"}
           strokeWidth="4"
           strokeLinecap="round"
-          opacity={isOnline ? 0.92 : 0.86}
+          opacity={isOnline ? 0.92 : isRunning ? 0.86 : 0.62}
         />
         <circle
           cx="0"
           cy="7"
           r="4"
-          fill={isOnline ? "var(--eg-flow)" : "var(--eg-anomaly)"}
-          opacity={isOnline ? 0.9 : 1}
+          fill={isOnline ? "var(--eg-flow)" : isRunning ? "var(--eg-anomaly)" : "var(--eg-muted)"}
+          opacity={isOnline ? 0.9 : isRunning ? 1 : 0.72}
         >
           {!isOnline && isRunning ? (
             <animate attributeName="opacity" values="1;0.35;1" dur="0.85s" repeatCount="indefinite" />
@@ -531,7 +516,7 @@ function PipelineDiagram({
         />
         <ellipse cx="0" cy="24" rx="31" ry="9" fill="none" stroke="var(--eg-border-bright)" strokeWidth="1.4" />
         <text x="0" y="10" textAnchor="middle" fill="var(--eg-flow)" fontSize="18" fontWeight="700">
-          {cloudCount}
+          {visualCentralCount}
         </text>
         <text x="0" y="54" textAnchor="middle" fill="var(--eg-text-dim)" fontSize="11" fontWeight="600">
           COUCHBASE CLOUD
@@ -551,77 +536,49 @@ function PipelineDiagram({
   );
 }
 
-function AnomalyTransitOverlay({
-  anomalyTransitTokens,
-}: {
-  anomalyTransitTokens: { id: string; turbineId: number }[];
-}) {
-  const layout = getPipelineLayout();
-  const turbineCenterX = layout.turbineRightX;
-  const turbineCenterYs = SCENE.turbineYs.map((y) => y + SCENE.cardHeight / 2);
-  const aiX = layout.aiX;
-  const feederTargetY = SCENE.stageY;
-  const feederTargetX = aiX - SCENE.feederInset;
-  const edgeEntryX = layout.edgeX - 34;
-  const anomalyTravelPaths = turbineCenterYs.map(
-    (y) =>
-      `M ${turbineCenterX} ${y} C ${turbineCenterX + 56} ${y}, ${feederTargetX - 54} ${feederTargetY}, ${feederTargetX} ${feederTargetY} L ${edgeEntryX} ${feederTargetY}`,
-  );
-
-  return (
-    <svg
-      viewBox={`0 0 ${SCENE.width} ${SCENE.height}`}
-      className="pointer-events-none absolute inset-0 z-20 h-full w-full"
-      aria-hidden="true"
-    >
-      {anomalyTransitTokens.map((token) => {
-        const path = anomalyTravelPaths[token.turbineId - 1];
-        if (!path) return null;
-        return (
-          <circle key={token.id} r="4.4" fill="var(--eg-anomaly)">
-            <animateMotion dur="2.2s" repeatCount="1" fill="freeze" path={path} />
-          </circle>
-        );
-      })}
-    </svg>
-  );
-}
-
 export function PipelineView() {
   const isRunning = usePipelineStore(selectIsRunning);
   const isOnline = usePipelineStore(selectIsOnline);
   const isRecoverySyncActive = usePipelineStore(selectIsRecoverySyncActive);
   const isMeshUnloadActive = usePipelineStore(selectIsMeshUnloadActive);
-  const edgeStorage = usePipelineStore((s) => s.edgeStorage);
-  const centralStorage = usePipelineStore((s) => s.centralStorage);
   const compactionCount = usePipelineStore((s) => s.compactionCount);
-  const anomalyTransitTokens = usePipelineStore((s) => s.anomalyTransitTokens);
   const perTurbineHistory = usePipelineStore((s) => s.perTurbineHistory);
+  const ingestEntities = usePipelineStore((s) => s.ingestEntities);
+  const cloudEntities = usePipelineStore((s) => s.cloudEntities);
+  const meshEntities = usePipelineStore((s) => s.meshEntities);
+  const visualEdgeTotalCount = usePipelineStore((s) => s.visualEdgeTotalCount);
   const visualEdgeAnomalyCount = usePipelineStore((s) => s.visualEdgeAnomalyCount);
+  const visualCentralCount = usePipelineStore((s) => s.visualCentralCount);
 
-  const edgeRatio = Math.min(1, edgeStorage.length / EDGE_CAPACITY);
-  const edgeAnomalyCount = Math.min(
-    visualEdgeAnomalyCount,
-    edgeStorage.filter((item) => isDataPoint(item) && item.type === "anomaly").length,
+  const ingestEntityCounts = {
+    1: ingestEntities.filter((entity) => entity.turbineId === 1).length,
+    2: ingestEntities.filter((entity) => entity.turbineId === 2).length,
+    3: ingestEntities.filter((entity) => entity.turbineId === 3).length,
+  };
+  const anomalyIngestTurbines = new Set(
+    ingestEntities
+      .filter((entity) => entity.kind === "anomaly")
+      .map((entity) => entity.turbineId)
+      .filter((turbineId): turbineId is number => turbineId != null),
   );
-  const cloudCount = centralStorage.length;
 
   return (
     <div className="overflow-x-auto">
-      <div
-        className="relative mx-auto min-w-[1088px]"
-        style={{ height: SCENE.height }}
-      >
+      <div className="relative mx-auto min-w-[1088px]" style={{ height: SCENE.height }}>
         <PipelineDiagram
           isRunning={isRunning}
           isOnline={isOnline}
           isRecoverySyncActive={isRecoverySyncActive}
           isMeshUnloadActive={isMeshUnloadActive}
-          anomalyTransitTokens={anomalyTransitTokens}
-          edgeRatio={edgeRatio}
-          edgeCount={edgeStorage.length}
-          edgeAnomalyCount={edgeAnomalyCount}
-          cloudCount={cloudCount}
+          ingestEntityCounts={ingestEntityCounts}
+          anomalyIngestTurbines={anomalyIngestTurbines}
+          cloudEntityCount={cloudEntities.length}
+          hasCloudAnomaly={cloudEntities.some((entity) => entity.kind === "anomaly")}
+          meshEntityCount={meshEntities.length}
+          hasMeshAnomaly={meshEntities.some((entity) => entity.kind === "anomaly")}
+          visualEdgeTotalCount={visualEdgeTotalCount}
+          visualEdgeAnomalyCount={visualEdgeAnomalyCount}
+          visualCentralCount={visualCentralCount}
           compactionCount={compactionCount}
         />
 
@@ -629,7 +586,9 @@ export function PipelineView() {
           const history = perTurbineHistory[turbineId] ?? [];
           const latest = history[history.length - 1];
           const power = latest?.value ?? 0;
-          const anomalyActive = anomalyTransitTokens.some((token) => token.turbineId === turbineId);
+          const highlighted = ingestEntities.some(
+            (entity) => entity.kind === "anomaly" && entity.turbineId === turbineId,
+          );
 
           return (
             <TurbineStageCard
@@ -637,15 +596,13 @@ export function PipelineView() {
               x={SCENE.turbineX}
               y={SCENE.turbineYs[index]}
               title={`Turbine ${turbineId}`}
-              status={anomalyActive ? "anomaly armed" : isRunning ? "telemetry live" : "standby"}
+              status={highlighted ? "anomaly in transit" : isRunning ? "telemetry live" : "standby"}
               power={power}
-              anomalyActive={anomalyActive}
+              highlighted={highlighted}
               isRunning={isRunning}
             />
           );
         })}
-
-        <AnomalyTransitOverlay anomalyTransitTokens={anomalyTransitTokens} />
       </div>
     </div>
   );
