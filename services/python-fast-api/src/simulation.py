@@ -30,11 +30,11 @@ from models.edgeguard import (
     SystemStatus,
 )
 
-EDGE_CAPACITY = 10
-COMPACTION_THRESHOLD = 20
+EDGE_CAPACITY = 100
+COMPACTION_THRESHOLD = 80
 TURBINE_COUNT = 3
-EMIT_INTERVAL_MS = 1400
-DRAIN_INTERVAL_MS = 1200
+EMIT_INTERVAL_MS = 140
+DRAIN_INTERVAL_MS = 120
 RECOVERY_DRAIN_MULTIPLIER = 5
 TURBINE_HISTORY_SIZE = 30
 TIER1_WINDOW_SIZE = 5
@@ -366,7 +366,9 @@ class SimulationEngine:
             if not self.is_running or not self.is_online:
                 continue
             if not self.edge_storage:
-                self.recovery_drain_active = False
+                if self.recovery_drain_active:
+                    self.recovery_drain_active = False
+                    self._publish("system_status", self.get_status_dict())
                 continue
 
             item = self.edge_storage.pop(0)
@@ -380,7 +382,9 @@ class SimulationEngine:
             })
             self._publish_metrics()
             if not self.edge_storage:
-                self.recovery_drain_active = False
+                if self.recovery_drain_active:
+                    self.recovery_drain_active = False
+                    self._publish("system_status", self.get_status_dict())
             # Edge Server continuously replicates to Sync Gateway → Couchbase Server;
             # no explicit push needed here.
 
@@ -407,6 +411,7 @@ class SimulationEngine:
             isRunning=self.is_running,
             isInitialized=self.is_initialized,
             isOnline=self.is_online,
+            isRecoverySyncActive=self.recovery_drain_active,
             sequenceNumber=self.sequence_number,
         ).model_dump(by_alias=True)
 

@@ -17,6 +17,7 @@ export interface SystemStatus {
   isRunning: boolean;
   isInitialized: boolean;
   isOnline: boolean;
+  isRecoverySyncActive: boolean;
   sequenceNumber: number;
 }
 

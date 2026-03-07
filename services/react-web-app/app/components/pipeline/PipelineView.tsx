@@ -1,692 +1,470 @@
-import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { usePipelineStore } from "~/stores/pipelineStore";
-import { COMPACTION_THRESHOLD, EDGE_CAPACITY } from "~/stores/pipelineStore";
-import { edgeguardApi } from "~/lib/api";
-import {
-  BRAIN_X,
-  BUFFER_X,
-  CENTRAL_X,
-  PIPE_END_X,
-  PIPE_PATH_LEFT,
-  PIPE_PATH_RIGHT,
-  PIPE_START_X,
-  PIPE_Y,
-  TURBINE_POSITIONS,
-  VALVE_X,
-} from "~/components/pipeline/pipelineGeometry";
+import { motion } from "framer-motion";
+import { EDGE_CAPACITY, usePipelineStore } from "~/stores/pipelineStore";
 
-const VIEW = { width: 1100, height: 350 };
+const SCENE = {
+  width: 1088,
+  height: 292,
+  cardWidth: 182,
+  cardHeight: 88,
+  turbineX: 20,
+  turbineYs: [6, 102, 198],
+  stageY: 146,
+  rightPadding: 26,
+  laneStartGap: 110,
+  feederInset: 46,
+  cloudRadius: 31,
+} as const;
 
-function TurbineGlyph({
-  x,
-  y,
-  hubY,
+function getPipelineLayout() {
+  const turbineRightX = SCENE.turbineX + SCENE.cardWidth;
+  const usableStartX = turbineRightX + SCENE.laneStartGap;
+  const usableEndX = SCENE.width - SCENE.rightPadding;
+  const usableWidth = usableEndX - usableStartX;
+
+  return {
+    turbineRightX,
+    usableStartX,
+    usableEndX,
+    aiX: usableStartX + usableWidth * 0.12,
+    edgeX: usableStartX + usableWidth * 0.46,
+    linkX: usableStartX + usableWidth * 0.73,
+    cloudX: usableEndX - SCENE.cloudRadius,
+  };
+}
+
+function WindmillMark({
   active,
-  label,
-  isRunning,
-  onActivate,
+  anomaly,
 }: {
-  x: number;
-  y: number;
-  hubY: number;
   active: boolean;
-  label: string;
-  isRunning: boolean;
-  onActivate: () => void;
+  anomaly: boolean;
 }) {
-  const dormant = !isRunning;
-  const bladeColor = dormant
+  const stroke = !active
     ? "var(--eg-muted)"
-    : active
+    : anomaly
       ? "var(--eg-anomaly)"
       : "var(--eg-flow)";
-  const hubColor = dormant ? "var(--eg-muted)" : active ? "var(--eg-anomaly)" : "var(--eg-flow)";
 
   return (
-    <g
-      role="button"
-      tabIndex={0}
-      aria-label={active ? `${label} anomaly burst active` : `${label} send anomaly burst`}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          if (isRunning) onActivate();
-        }
-      }}
-      style={{ cursor: isRunning ? "pointer" : "default" }}
-      onClick={() => isRunning && onActivate()}
-    >
-      {/* Tower */}
-      <line
-        x1={x}
-        y1={y}
-        x2={x}
-        y2={hubY + 10}
-        stroke={dormant ? "var(--eg-muted)" : active ? "var(--eg-anomaly)" : "var(--eg-border-bright)"}
-        strokeWidth={3}
-        strokeLinecap="round"
-        opacity={dormant ? 0.4 : 1}
-      />
-
-      {/* Base */}
-      <rect
-        x={x - 14}
-        y={y - 4}
-        width={28}
-        height={8}
-        rx={2}
-        fill="var(--eg-surface)"
-        stroke={dormant ? "var(--eg-muted)" : active ? "var(--eg-anomaly)" : "var(--eg-border-bright)"}
-        strokeWidth={1.2}
-        opacity={dormant ? 0.4 : 1}
-      />
-
-      {/* Hub */}
-      <circle
-        cx={x}
-        cy={hubY}
-        r={6}
-        fill={hubColor}
-        opacity={dormant ? 0.3 : 0.9}
-      />
-      {active && isRunning && (
-        <circle cx={x} cy={hubY} r={12} fill="none" stroke="var(--eg-anomaly)" strokeWidth={1} opacity={0.4}>
-          <animate attributeName="r" values="8;18;8" dur="1s" repeatCount="indefinite" />
-          <animate attributeName="opacity" values="0.5;0;0.5" dur="1s" repeatCount="indefinite" />
-        </circle>
-      )}
-
-      {/* Blades */}
-      <g>
-        {isRunning ? (
-          <animateTransform
-            attributeName="transform"
-            type="rotate"
-            from={`0 ${x} ${hubY}`}
-            to={`360 ${x} ${hubY}`}
-            dur={active ? "0.8s" : "2.5s"}
-            repeatCount="indefinite"
-          />
-        ) : null}
-        <line x1={x} y1={hubY} x2={x} y2={hubY - 26} stroke={bladeColor} strokeWidth={2.5} strokeLinecap="round" opacity={dormant ? 0.3 : 1} />
-        <line x1={x} y1={hubY} x2={x - 22} y2={hubY + 14} stroke={bladeColor} strokeWidth={2.5} strokeLinecap="round" opacity={dormant ? 0.3 : 1} />
-        <line x1={x} y1={hubY} x2={x + 22} y2={hubY + 14} stroke={bladeColor} strokeWidth={2.5} strokeLinecap="round" opacity={dormant ? 0.3 : 1} />
+    <svg viewBox="0 0 40 40" className="h-8 w-8" aria-hidden="true">
+      <g fill="none" stroke={stroke} strokeLinecap="round" strokeLinejoin="round">
+        <line x1="20" y1="18" x2="20" y2="33" strokeWidth="1.8" />
+        <circle cx="20" cy="16" r="2.2" fill={stroke} stroke="none" opacity={active ? 0.9 : 0.45} />
+        <line x1="20" y1="16" x2="20" y2="4" strokeWidth="1.8">
+          {active ? (
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from="0 20 16"
+              to="360 20 16"
+              dur={anomaly ? "0.9s" : "2.6s"}
+              repeatCount="indefinite"
+            />
+          ) : null}
+        </line>
+        <line x1="20" y1="16" x2="10" y2="23" strokeWidth="1.8">
+          {active ? (
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from="0 20 16"
+              to="360 20 16"
+              dur={anomaly ? "0.9s" : "2.6s"}
+              repeatCount="indefinite"
+            />
+          ) : null}
+        </line>
+        <line x1="20" y1="16" x2="30" y2="23" strokeWidth="1.8">
+          {active ? (
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from="0 20 16"
+              to="360 20 16"
+              dur={anomaly ? "0.9s" : "2.6s"}
+              repeatCount="indefinite"
+            />
+          ) : null}
+        </line>
       </g>
-
-      {/* Label */}
-      <text
-        x={x}
-        y={y + 22}
-        textAnchor="middle"
-        fill={dormant ? "var(--eg-muted)" : active ? "var(--eg-anomaly)" : "var(--eg-text-dim)"}
-        fontSize="13"
-        fontWeight="600"
-        fontFamily="IBM Plex Sans, Segoe UI, sans-serif"
-        opacity={dormant ? 0.4 : 1}
-      >
-        {label}
-      </text>
-    </g>
+    </svg>
   );
 }
 
-function AIChipNode({ x, y, isRunning }: { x: number; y: number; isRunning: boolean }) {
-  const dormant = !isRunning;
-  const color = dormant ? "var(--eg-muted)" : "var(--eg-flow)";
-  const activeOpacity = dormant ? 0.3 : 1;
-  const s = 18;
-
-  return (
-    <g transform={`translate(${x}, ${y})`} opacity={activeOpacity}>
-      {/* Smooth scale pulse when working (no red flash) */}
-      {isRunning && (
-        <circle cx={0} cy={0} r={28} fill="none" stroke={color} strokeWidth={0.6} opacity={0.1} className="ai-pulse" />
-      )}
-
-      <g>
-        {isRunning && (
-          <animateTransform
-            attributeName="transform"
-            type="scale"
-            values="1;1.08;1"
-            dur="2.4s"
-            repeatCount="indefinite"
-          />
-        )}
-        {/* Hexagonal chip shape — always flow color, no red */}
-        <polygon
-          points={`0,${-s} ${s * 0.87},${-s * 0.5} ${s * 0.87},${s * 0.5} 0,${s} ${-s * 0.87},${s * 0.5} ${-s * 0.87},${-s * 0.5}`}
-          fill="var(--eg-surface)"
-          stroke={color}
-          strokeWidth={1.6}
-        />
-
-        {/* Inner circuit lines */}
-        <line x1={-6} y1={-6} x2={6} y2={-6} stroke={color} strokeWidth={0.6} opacity={0.4} />
-        <line x1={-6} y1={0} x2={6} y2={0} stroke={color} strokeWidth={0.6} opacity={0.4} />
-        <line x1={-6} y1={6} x2={6} y2={6} stroke={color} strokeWidth={0.6} opacity={0.4} />
-        <line x1={0} y1={-8} x2={0} y2={8} stroke={color} strokeWidth={0.6} opacity={0.3} />
-
-        {/* Pin stubs (left/right) */}
-        {[-8, -3, 3, 8].map((dy) => (
-          <g key={`pins-${dy}`}>
-            <line x1={-s * 0.87} y1={dy} x2={-s * 0.87 - 5} y2={dy} stroke={color} strokeWidth={0.8} opacity={0.3} />
-            <line x1={s * 0.87} y1={dy} x2={s * 0.87 + 5} y2={dy} stroke={color} strokeWidth={0.8} opacity={0.3} />
-          </g>
-        ))}
-
-        {/* Core glow dot */}
-        <circle cx={0} cy={0} r={4} fill={color} opacity={dormant ? 0.15 : 0.2}>
-          {isRunning && (
-            <animate attributeName="opacity" values="0.1;0.25;0.1" dur="3.5s" repeatCount="indefinite" />
-          )}
-        </circle>
-      </g>
-
-      {/* Labels */}
-      <text x={0} y={s + 16} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : "var(--eg-text-dim)"} fontSize="10" fontWeight="600" fontFamily="IBM Plex Sans, Segoe UI, sans-serif">
-        EDGE AI
-      </text>
-      <text x={0} y={s + 29} textAnchor="middle" fill={color} fontSize="8" fontWeight="500" fontFamily="IBM Plex Sans, Segoe UI, sans-serif" opacity={0.6}>
-        ISOLATION FOREST
-      </text>
-    </g>
-  );
-}
-
-function BufferTank({ x, y, ratio, inCompactionZone, compactionFlash, isRunning }: {
+function TurbineStageCard({
+  x,
+  y,
+  title,
+  status,
+  power,
+  anomalyActive,
+  isRunning,
+}: {
   x: number;
   y: number;
-  ratio: number;
-  inCompactionZone: boolean;
-  compactionFlash: boolean;
+  title: string;
+  status: string;
+  power: number;
+  anomalyActive: boolean;
   isRunning: boolean;
 }) {
-  const tankH = 120;
-  const tankW = 70;
-  const fluidH = ratio * (tankH - 8);
-  const dormant = !isRunning;
-  const fluidColor = dormant
-    ? "var(--eg-muted)"
-    : inCompactionZone
-      ? "var(--eg-anomaly)"
-      : ratio > 0.6
-        ? "var(--eg-alert)"
-        : "var(--eg-flow)";
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: "easeOut" }}
+      className="absolute rounded-[18px] border border-[var(--eg-border)] bg-white/96 px-4 py-3 shadow-[0_14px_30px_rgba(30,50,79,0.10)]"
+      style={{
+        left: x,
+        top: y,
+        width: SCENE.cardWidth,
+        height: SCENE.cardHeight,
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[11px] font-display font-semibold uppercase tracking-[0.08em] text-[var(--eg-text-dim)]">
+            {title}
+          </div>
+          <div className="mt-1 text-[12px] font-medium text-[var(--eg-text)]">{status}</div>
+        </div>
+        <div className="shrink-0">
+          <WindmillMark active={isRunning} anomaly={anomalyActive} />
+        </div>
+      </div>
+      <div className="mt-3 flex items-end justify-between gap-3">
+        <span className="text-[11px] uppercase tracking-[0.06em] text-[var(--eg-text-dim)]">Power</span>
+        <span
+          className="font-mono text-[15px] font-semibold"
+          style={{ color: anomalyActive ? "var(--eg-anomaly)" : "var(--eg-text)" }}
+        >
+          {Math.round(power)} kW
+        </span>
+      </div>
+    </motion.div>
+  );
+}
+
+function PipelineDiagram({
+  isRunning,
+  isOnline,
+  isRecoverySyncActive,
+  forcedAnomalyTurbine,
+  edgeRatio,
+  edgeCount,
+  cloudCount,
+  compactionCount,
+}: {
+  isRunning: boolean;
+  isOnline: boolean;
+  isRecoverySyncActive: boolean;
+  forcedAnomalyTurbine: number | null;
+  edgeRatio: number;
+  edgeCount: number;
+  cloudCount: number;
+  compactionCount: number;
+}) {
+  const layout = getPipelineLayout();
+  const feederTargetY = SCENE.stageY;
+  const turbineCenterX = layout.turbineRightX;
+  const turbineCenterYs = SCENE.turbineYs.map((y) => y + SCENE.cardHeight / 2);
+  const aiX = layout.aiX;
+  const feederTargetX = aiX - SCENE.feederInset;
+  const mainStartX = aiX + 34;
+  const edgeTankX = layout.edgeX;
+  const cloudDbX = layout.cloudX;
+  const linkX = layout.linkX;
+  const laneStartX = mainStartX;
+  const laneMidX = edgeTankX - 62;
+  const laneResumeX = edgeTankX + 66;
+  const laneEndX = cloudDbX - 50;
+  const pathIngest = `M ${laneStartX} ${feederTargetY} L ${laneMidX} ${feederTargetY}`;
+  const pathSync = `M ${laneResumeX} ${feederTargetY} L ${laneEndX} ${feederTargetY}`;
+  const conveyorDotDur = "2.2s";
+  const recoveryDotDur = "0.9s";
+  const syncDotDur = isRecoverySyncActive ? recoveryDotDur : conveyorDotDur;
+  const feederPaths = turbineCenterYs.map(
+    (y) =>
+      `M ${turbineCenterX} ${y} C ${turbineCenterX + 56} ${y}, ${feederTargetX - 54} ${feederTargetY}, ${feederTargetX} ${feederTargetY}`,
+  );
 
   return (
-    <g transform={`translate(${x}, ${y})`} opacity={dormant ? 0.4 : 1}>
-      {/* Tank outline */}
-      <rect
-        x={-tankW / 2}
-        y={-tankH / 2}
-        width={tankW}
-        height={tankH}
-        rx={6}
-        fill="var(--eg-bg)"
-        stroke={dormant ? "var(--eg-muted)" : inCompactionZone ? "var(--eg-anomaly)" : "var(--eg-border-bright)"}
-        strokeWidth={1.5}
-      />
-
-      {/* Capacity markings */}
-      {[0.25, 0.5, 0.75].map((mark) => (
-        <g key={mark}>
-          <line
-            x1={-tankW / 2 + 2}
-            y1={tankH / 2 - 4 - mark * (tankH - 8)}
-            x2={-tankW / 2 + 8}
-            y2={tankH / 2 - 4 - mark * (tankH - 8)}
-            stroke="var(--eg-muted)"
-            strokeWidth={0.5}
-          />
-          <text
-            x={-tankW / 2 + 10}
-            y={tankH / 2 - 4 - mark * (tankH - 8) + 3}
-            fill="var(--eg-muted)"
-            fontSize="6"
-            fontFamily="JetBrains Mono, monospace"
-          >
-            {Math.round(mark * 100)}%
-          </text>
-        </g>
-      ))}
-
-      {/* Fluid fill */}
+    <svg
+      viewBox={`0 0 ${SCENE.width} ${SCENE.height}`}
+      className="pointer-events-none absolute inset-0 h-full w-full"
+      aria-hidden="true"
+    >
       <defs>
-        <linearGradient id="buffer-fluid" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor={fluidColor} stopOpacity="0.85" />
-          <stop offset="100%" stopColor={fluidColor} stopOpacity="0.3" />
+        <linearGradient id="lane-blue" x1="0%" x2="100%" y1="0%" y2="0%">
+          <stop offset="0%" stopColor="rgba(32, 113, 181, 0.14)" />
+          <stop offset="100%" stopColor="rgba(32, 113, 181, 0.30)" />
         </linearGradient>
-        <clipPath id="tank-clip">
-          <rect x={-tankW / 2 + 2} y={-tankH / 2 + 2} width={tankW - 4} height={tankH - 4} rx={5} />
-        </clipPath>
+        <linearGradient id="lane-red" x1="0%" x2="100%" y1="0%" y2="0%">
+          <stop offset="0%" stopColor="rgba(249, 59, 24, 0.16)" />
+          <stop offset="100%" stopColor="rgba(249, 59, 24, 0.36)" />
+        </linearGradient>
+        <linearGradient id="belt-body" x1="0%" x2="0%" y1="0%" y2="100%">
+          <stop offset="0%" stopColor="rgba(255,255,255,0.78)" />
+          <stop offset="100%" stopColor="rgba(226,234,243,0.96)" />
+        </linearGradient>
       </defs>
 
-      <g clipPath="url(#tank-clip)">
-        <rect
-          x={-tankW / 2 + 2}
-          y={tankH / 2 - 2 - fluidH}
-          width={tankW - 4}
-          height={fluidH}
-          fill="url(#buffer-fluid)"
-        />
-        {fluidH > 2 && isRunning && (
-          <path
-            d={`M ${-tankW / 2 + 2} ${tankH / 2 - 2 - fluidH} Q ${-tankW / 4} ${tankH / 2 - 2 - fluidH - 3} 0 ${tankH / 2 - 2 - fluidH} Q ${tankW / 4} ${tankH / 2 - 2 - fluidH + 3} ${tankW / 2 - 2} ${tankH / 2 - 2 - fluidH}`}
-            fill={fluidColor}
-            opacity={0.4}
-          >
-            <animate
-              attributeName="d"
-              values={`M ${-tankW / 2 + 2} ${tankH / 2 - 2 - fluidH} Q ${-tankW / 4} ${tankH / 2 - 2 - fluidH - 3} 0 ${tankH / 2 - 2 - fluidH} Q ${tankW / 4} ${tankH / 2 - 2 - fluidH + 3} ${tankW / 2 - 2} ${tankH / 2 - 2 - fluidH};M ${-tankW / 2 + 2} ${tankH / 2 - 2 - fluidH} Q ${-tankW / 4} ${tankH / 2 - 2 - fluidH + 3} 0 ${tankH / 2 - 2 - fluidH} Q ${tankW / 4} ${tankH / 2 - 2 - fluidH - 3} ${tankW / 2 - 2} ${tankH / 2 - 2 - fluidH};M ${-tankW / 2 + 2} ${tankH / 2 - 2 - fluidH} Q ${-tankW / 4} ${tankH / 2 - 2 - fluidH - 3} 0 ${tankH / 2 - 2 - fluidH} Q ${tankW / 4} ${tankH / 2 - 2 - fluidH + 3} ${tankW / 2 - 2} ${tankH / 2 - 2 - fluidH}`}
-              dur="2s"
-              repeatCount="indefinite"
-            />
-          </path>
-        )}
-      </g>
-
-      {/* Compaction flash overlay */}
-      {compactionFlash && (
-        <rect
-          x={-tankW / 2}
-          y={-tankH / 2}
-          width={tankW}
-          height={tankH}
-          rx={6}
-          fill="var(--eg-flow)"
-          opacity={0.25}
-        >
-          <animate attributeName="opacity" values="0.3;0" dur="0.5s" fill="freeze" />
-        </rect>
-      )}
-
-      {/* DB icon inside tank */}
-      <g transform="translate(0, -48)">
-        <ellipse cx={0} cy={0} rx={10} ry={3} fill="none" stroke={dormant ? "var(--eg-muted)" : "var(--eg-flow)"} strokeWidth={0.6} opacity={0.4} />
-        <rect x={-10} y={0} width={20} height={10} fill="none" stroke={dormant ? "var(--eg-muted)" : "var(--eg-flow)"} strokeWidth={0.6} opacity={0.3} />
-        <ellipse cx={0} cy={10} rx={10} ry={3} fill="none" stroke={dormant ? "var(--eg-muted)" : "var(--eg-flow)"} strokeWidth={0.6} opacity={0.4} />
-      </g>
-
-      {/* Labels */}
-      <text x={0} y={tankH / 2 + 16} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : inCompactionZone ? "var(--eg-anomaly)" : "var(--eg-text-dim)"} fontSize="10" fontWeight="600" fontFamily="IBM Plex Sans, Segoe UI, sans-serif">
-        EDGE COUCHBASE
-      </text>
-      <text x={0} y={tankH / 2 + 28} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : inCompactionZone ? "var(--eg-anomaly)" : "var(--eg-flow)"} fontSize="9" fontWeight="700" fontFamily="JetBrains Mono, monospace">
-        {Math.round(ratio * 100)}%
-      </text>
-    </g>
-  );
-}
-
-function ValveNode({ x, y, isOnline, isRunning, onToggle }: {
-  x: number;
-  y: number;
-  isOnline: boolean;
-  isRunning: boolean;
-  onToggle: () => void;
-}) {
-  const dormant = !isRunning;
-  const color = dormant ? "var(--eg-muted)" : isOnline ? "var(--eg-flow)" : "var(--eg-anomaly)";
-
-  return (
-    <g
-      transform={`translate(${x}, ${y})`}
-      role="button"
-      tabIndex={0}
-      aria-label={isOnline ? "Close valve to simulate outage" : "Open valve to restore connection"}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          if (isRunning) onToggle();
-        }
-      }}
-      onClick={() => isRunning && onToggle()}
-      style={{ cursor: isRunning ? "pointer" : "default" }}
-      opacity={dormant ? 0.4 : 1}
-    >
-      <rect x={-42} y={-5} width={20} height={10} rx={3} fill="var(--eg-surface)" stroke={color} strokeWidth={1.2} />
-      <rect x={22} y={-5} width={20} height={10} rx={3} fill="var(--eg-surface)" stroke={color} strokeWidth={1.2} />
-
-      <path
-        d="M -22 0 C -13 -18, -5 -18, 5 0"
-        fill="none"
-        stroke={color}
-        strokeWidth={3.2}
-        strokeLinecap="round"
-        opacity={isOnline ? 0.95 : 0.28}
-      />
-      <path
-        d="M -5 0 C 5 18, 13 18, 22 0"
-        fill="none"
-        stroke={color}
-        strokeWidth={3.2}
-        strokeLinecap="round"
-        opacity={isOnline ? 0.95 : 0.28}
-      />
-
-      {!isOnline && (
-        <>
-          <path d="M -4 -18 L 4 -8" stroke="var(--eg-anomaly)" strokeWidth={2.6} strokeLinecap="round" />
-          <path d="M -4 -8 L 4 -18" stroke="var(--eg-anomaly)" strokeWidth={2.6} strokeLinecap="round" />
-        </>
-      )}
-
-      {isOnline && isRunning && (
-        <ellipse cx={0} cy={0} rx={24} ry={20} fill="none" stroke="var(--eg-flow)" strokeWidth={0.7} opacity={0.18}>
-          <animate attributeName="opacity" values="0.08;0.24;0.08" dur="2.4s" repeatCount="indefinite" />
-        </ellipse>
-      )}
-
-      {!isOnline && isRunning && (
-        <ellipse cx={0} cy={0} rx={30} ry={24} fill="none" stroke="var(--eg-anomaly)" strokeWidth={1} opacity={0.28}>
-          <animate attributeName="opacity" values="0.12;0.35;0.12" dur="1.5s" repeatCount="indefinite" />
-        </ellipse>
-      )}
-
-      <text x={0} y={40} textAnchor="middle" fill={color} fontSize="10" fontWeight="600" fontFamily="IBM Plex Sans, Segoe UI, sans-serif">
-        {dormant ? "LINK IDLE" : isOnline ? "LINK LIVE" : "LINK LOST"}
-      </text>
-    </g>
-  );
-}
-
-function CentralDBNode({ x, y, count, isOnline, isRunning }: {
-  x: number;
-  y: number;
-  count: number;
-  isOnline: boolean;
-  isRunning: boolean;
-}) {
-  const dormant = !isRunning;
-  const color = dormant ? "var(--eg-muted)" : isOnline ? "var(--eg-flow)" : "var(--eg-muted)";
-  const opacity = dormant ? 0.35 : isOnline ? 1 : 0.4;
-
-  return (
-    <g transform={`translate(${x}, ${y})`} opacity={opacity}>
-      {/* Cloud shape */}
-      <ellipse cx={0} cy={-24} rx={32} ry={10} fill="var(--eg-surface)" stroke={color} strokeWidth={1.2} />
-      <rect x={-32} y={-24} width={64} height={48} fill="var(--eg-surface)" stroke={color} strokeWidth={1.2} />
-      <ellipse cx={0} cy={24} rx={32} ry={10} fill="var(--eg-surface)" stroke={color} strokeWidth={1.2} />
-
-      {/* DB lines */}
-      <line x1={-20} y1={-8} x2={20} y2={-8} stroke={color} opacity={0.4} strokeWidth={0.6} />
-      <line x1={-20} y1={4} x2={20} y2={4} stroke={color} opacity={0.4} strokeWidth={0.6} />
-      <line x1={-20} y1={16} x2={20} y2={16} stroke={color} opacity={0.4} strokeWidth={0.6} />
-
-      {/* Count */}
-      <text x={0} y={2} textAnchor="middle" fill={color} fontSize="14" fontWeight="700" fontFamily="JetBrains Mono, monospace">
-        {count}
-      </text>
-
-      {/* Active glow */}
-      {isOnline && isRunning && (
-        <ellipse cx={0} cy={0} rx={36} ry={28} fill="none" stroke="var(--eg-flow)" strokeWidth={0.5} opacity={0.15}>
-          <animate attributeName="opacity" values="0.08;0.2;0.08" dur="3s" repeatCount="indefinite" />
-        </ellipse>
-      )}
-
-      {/* Labels */}
-      <text x={0} y={48} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : isOnline ? "var(--eg-text-dim)" : "var(--eg-muted)"} fontSize="10" fontWeight="600" fontFamily="IBM Plex Sans, Segoe UI, sans-serif">
-        CENTRAL DB
-      </text>
-      {!isOnline && isRunning && (
-        <text x={0} y={60} textAnchor="middle" fill="var(--eg-anomaly)" fontSize="8" fontWeight="600" fontFamily="IBM Plex Sans, Segoe UI, sans-serif" opacity={0.8}>
-          UNREACHABLE
-        </text>
-      )}
-    </g>
-  );
-}
-
-function ConveyorLane({
-  path,
-  color,
-  count,
-  duration,
-  size,
-  opacity = 0.9,
-  anomalyActive = false,
-}: {
-  path: string;
-  color: string;
-  count: number;
-  duration: number;
-  size: number;
-  opacity?: number;
-  anomalyActive?: boolean;
-}) {
-  return (
-    <>
-      {Array.from({ length: count }, (_, index) => {
-        const begin = `-${(duration / count) * index}s`;
-
+      {feederPaths.map((path, index) => {
+        const highlighted = forcedAnomalyTurbine === index + 1;
         return (
-          <g key={`${path}-${index}`} filter="url(#glow-cyan)">
-            <circle r={size * 1.8} fill={color} opacity={0.08} />
-            <circle r={size} fill={color} opacity={opacity} />
-            <circle r={Math.max(1.5, size * 0.45)} fill="white" opacity={0.65} />
-            <animateMotion
-              dur={`${duration}s`}
-              begin={begin}
-              repeatCount="indefinite"
-              path={path}
-              rotate="auto"
+          <g key={path}>
+            <path
+              d={path}
+              fill="none"
+              stroke={highlighted ? "rgba(249, 59, 24, 0.30)" : "rgba(32, 113, 181, 0.18)"}
+              strokeWidth="2"
+              strokeLinecap="round"
             />
+            {isRunning ? (
+              <circle r="3.2" fill={highlighted ? "var(--eg-anomaly)" : "var(--eg-flow)"}>
+                <animateMotion dur={highlighted ? "0.8s" : "1.4s"} repeatCount="indefinite" path={path} />
+              </circle>
+            ) : null}
           </g>
         );
       })}
-      {anomalyActive && (
-        <g filter="url(#glow-red)">
-          <circle r={(size + 1) * 1.8} fill="var(--eg-anomaly)" opacity={0.12} />
-          <circle r={size + 1} fill="var(--eg-anomaly)" opacity={0.95} />
-          <circle r={Math.max(1.5, (size + 1) * 0.45)} fill="white" opacity={0.7} />
-          <animateMotion
-            dur={`${duration}s`}
-            begin="0s"
-            repeatCount="indefinite"
-            path={path}
-            rotate="auto"
-          />
-        </g>
-      )}
-    </>
+
+      <path d={pathIngest} fill="none" stroke="url(#belt-body)" strokeWidth="18" strokeLinecap="round" />
+      <path d={pathIngest} fill="none" stroke="rgba(30, 50, 79, 0.08)" strokeWidth="18" strokeLinecap="round" transform="translate(0 1.5)" />
+      <path d={pathIngest} fill="none" stroke="url(#lane-blue)" strokeWidth="10" strokeLinecap="round" />
+      <path d={pathIngest} fill="none" stroke="rgba(255,255,255,0.58)" strokeWidth="2.5" strokeLinecap="round" transform="translate(0 -3)" />
+      {isRunning ? (
+        <>
+          <circle r="5" fill="var(--eg-flow)">
+            <animateMotion dur={conveyorDotDur} repeatCount="indefinite" path={pathIngest} />
+          </circle>
+          <circle r="4.2" fill={forcedAnomalyTurbine ? "var(--eg-anomaly)" : "var(--eg-flow)"}>
+            <animateMotion
+              dur={conveyorDotDur}
+              repeatCount="indefinite"
+              path={pathIngest}
+            />
+          </circle>
+        </>
+      ) : null}
+
+      <path
+        d={pathSync}
+        fill="none"
+        stroke="url(#belt-body)"
+        strokeWidth="18"
+        strokeLinecap="round"
+      />
+      <path
+        d={pathSync}
+        fill="none"
+        stroke="rgba(30, 50, 79, 0.08)"
+        strokeWidth="18"
+        strokeLinecap="round"
+        transform="translate(0 1.5)"
+      />
+      <path
+        d={pathSync}
+        fill="none"
+        stroke={isOnline ? "url(#lane-blue)" : "url(#lane-red)"}
+        strokeWidth="10"
+        strokeLinecap="round"
+        strokeDasharray={isOnline ? undefined : "16 12"}
+      />
+      {isOnline ? (
+        <path d={pathSync} fill="none" stroke="rgba(255,255,255,0.58)" strokeWidth="2.5" strokeLinecap="round" transform="translate(0 -3)" />
+      ) : null}
+      {isRunning && isOnline ? (
+        <circle r="5" fill={isOnline ? "var(--eg-flow)" : "var(--eg-anomaly)"}>
+          <animateMotion dur={syncDotDur} repeatCount="indefinite" path={pathSync} />
+        </circle>
+      ) : null}
+
+      <g transform={`translate(${aiX}, ${SCENE.stageY})`}>
+        {isRunning ? (
+          <circle cx="0" cy="0" r="32" fill="none" stroke="var(--eg-flow)" strokeWidth="0.7" opacity="0.14">
+            <animate attributeName="r" values="28;36;28" dur="2.6s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.18;0.04;0.18" dur="2.6s" repeatCount="indefinite" />
+          </circle>
+        ) : null}
+        <polygon
+          points="0,-18 15,-9 15,9 0,18 -15,9 -15,-9"
+          fill="var(--eg-surface)"
+          stroke={forcedAnomalyTurbine ? "var(--eg-anomaly)" : "var(--eg-flow)"}
+          strokeWidth="1.4"
+          opacity={isRunning ? 1 : 0.42}
+        />
+        <line x1="-6" y1="-6" x2="6" y2="-6" stroke="var(--eg-border-bright)" strokeWidth="1" />
+        <line x1="-6" y1="0" x2="6" y2="0" stroke="var(--eg-border-bright)" strokeWidth="1" />
+        <line x1="-6" y1="6" x2="6" y2="6" stroke="var(--eg-border-bright)" strokeWidth="1" />
+        <line x1="0" y1="-8" x2="0" y2="8" stroke="var(--eg-border-bright)" strokeWidth="1" />
+        <text x="0" y="38" textAnchor="middle" fill="var(--eg-text-dim)" fontSize="11" fontWeight="600">
+          EDGE AI
+        </text>
+        <text
+          x="0"
+          y="52"
+          textAnchor="middle"
+          fill={forcedAnomalyTurbine ? "var(--eg-anomaly)" : "var(--eg-flow)"}
+          fontSize="9"
+          fontWeight="600"
+        >
+          {forcedAnomalyTurbine ? `FOCUS T${forcedAnomalyTurbine}` : isRunning ? "SCORING LIVE" : "MODEL IDLE"}
+        </text>
+      </g>
+
+      <g transform={`translate(${edgeTankX}, ${SCENE.stageY})`}>
+        <rect
+          x="-38"
+          y="-58"
+          width="76"
+          height="116"
+          rx="10"
+          fill="rgba(255,255,255,0.78)"
+          stroke={edgeRatio > 0.7 ? "var(--eg-alert)" : "var(--eg-border-bright)"}
+          strokeWidth="1.5"
+        />
+        <rect
+          x="-34"
+          y={54 - edgeRatio * 108}
+          width="68"
+          height={Math.max(0, edgeRatio * 108)}
+          rx="8"
+          fill={edgeRatio > 0.7 ? "rgba(255, 218, 0, 0.24)" : "rgba(32, 113, 181, 0.18)"}
+        />
+        <circle
+          cx="0"
+          cy={54 - edgeRatio * 108}
+          r="10"
+          fill={edgeRatio > 0.7 ? "rgba(255, 218, 0, 0.32)" : "rgba(32, 113, 181, 0.20)"}
+        />
+        <text x="0" y="80" textAnchor="middle" fill="var(--eg-text-dim)" fontSize="11" fontWeight="600">
+          COUCHBASE EDGE
+        </text>
+        <text
+          x="0"
+          y="94"
+          textAnchor="middle"
+          fill={edgeRatio > 0.7 ? "var(--eg-alert)" : "var(--eg-flow)"}
+          fontSize="10"
+          fontWeight="700"
+        >
+          {edgeCount}/{EDGE_CAPACITY}
+        </text>
+      </g>
+
+      <g transform={`translate(${linkX}, ${SCENE.stageY})`}>
+        <path
+          d="M -22 4 Q -12 -12 0 -12 Q 12 -12 22 4"
+          fill="none"
+          stroke={isOnline ? "var(--eg-border-bright)" : "var(--eg-anomaly)"}
+          strokeWidth="4"
+          strokeLinecap="round"
+          opacity={isOnline ? 1 : 0.92}
+        />
+        <path
+          d="M -14 4 Q -8 -4 0 -4 Q 8 -4 14 4"
+          fill="none"
+          stroke={isOnline ? "var(--eg-border-bright)" : "var(--eg-anomaly)"}
+          strokeWidth="4"
+          strokeLinecap="round"
+          opacity={isOnline ? 0.92 : 0.86}
+        />
+        <circle
+          cx="0"
+          cy="7"
+          r="4"
+          fill={isOnline ? "var(--eg-flow)" : "var(--eg-anomaly)"}
+          opacity={isOnline ? 0.9 : 1}
+        >
+          {!isOnline && isRunning ? (
+            <animate attributeName="opacity" values="1;0.35;1" dur="0.85s" repeatCount="indefinite" />
+          ) : null}
+        </circle>
+        <text x="0" y="38" textAnchor="middle" fill="var(--eg-text-dim)" fontSize="11" fontWeight="600">
+          {isOnline ? "LINK LIVE" : "LINK LOST"}
+        </text>
+      </g>
+
+      <g transform={`translate(${cloudDbX}, ${SCENE.stageY})`}>
+        <ellipse cx="0" cy="-22" rx="31" ry="9" fill="none" stroke="var(--eg-border-bright)" strokeWidth="1.4" />
+        <path
+          d="M -31 -22 L -31 24 C -31 31 -17 37 0 37 C 17 37 31 31 31 24 L 31 -22"
+          fill="rgba(255,255,255,0.38)"
+          stroke="var(--eg-border-bright)"
+          strokeWidth="1.4"
+        />
+        <ellipse cx="0" cy="24" rx="31" ry="9" fill="none" stroke="var(--eg-border-bright)" strokeWidth="1.4" />
+        <text x="0" y="10" textAnchor="middle" fill="var(--eg-flow)" fontSize="18" fontWeight="700">
+          {cloudCount}
+        </text>
+        <text x="0" y="54" textAnchor="middle" fill="var(--eg-text-dim)" fontSize="11" fontWeight="600">
+          COUCHBASE CLOUD
+        </text>
+        <text
+          x="0"
+          y="68"
+          textAnchor="middle"
+          fill={compactionCount > 0 ? "var(--eg-alert)" : "var(--eg-flow)"}
+          fontSize="9"
+          fontWeight="600"
+        >
+          {compactionCount > 0 ? `${compactionCount} COMPACTIONS` : "SYNC TARGET"}
+        </text>
+      </g>
+    </svg>
   );
 }
 
 export function PipelineView() {
+  const isRunning = usePipelineStore((s) => s.isRunning);
+  const isOnline = usePipelineStore((s) => s.isOnline);
+  const isRecoverySyncActive = usePipelineStore((s) => s.isRecoverySyncActive);
   const edgeStorage = usePipelineStore((s) => s.edgeStorage);
   const centralStorage = usePipelineStore((s) => s.centralStorage);
-  const isOnline = usePipelineStore((s) => s.isOnline);
-  const isRunning = usePipelineStore((s) => s.isRunning);
-  const forcedAnomalyTurbine = usePipelineStore((s) => s.forcedAnomalyTurbine);
   const compactionCount = usePipelineStore((s) => s.compactionCount);
-  const edgePressure = usePipelineStore((s) => s.edgePressure);
-  const setOnline = (online: boolean) => {
-    edgeguardApi.setConnection(online).catch(() => {});
-  };
-  const setForcedAnomalyTurbine = (id: number | null) => {
-    if (id != null) {
-      edgeguardApi.injectAnomaly(id).catch(() => {});
-    } else if (forcedAnomalyTurbine != null) {
-      edgeguardApi.clearAnomaly(forcedAnomalyTurbine).catch(() => {});
-    }
-    usePipelineStore.setState({ forcedAnomalyTurbine: id });
-  };
+  const forcedAnomalyTurbine = usePipelineStore((s) => s.forcedAnomalyTurbine);
+  const perTurbineHistory = usePipelineStore((s) => s.perTurbineHistory);
 
-  const [compactionFlash, setCompactionFlash] = useState(false);
-  useEffect(() => {
-    if (compactionCount === 0) return;
-    setCompactionFlash(true);
-    const timer = setTimeout(() => setCompactionFlash(false), 500);
-    return () => clearTimeout(timer);
-  }, [compactionCount]);
-
-  const bufferRatio = Math.min(1, edgeStorage.length / EDGE_CAPACITY);
-  const inCompactionZone = bufferRatio >= COMPACTION_THRESHOLD / EDGE_CAPACITY;
-  const conveyorColor = edgePressure > 0.5 ? "var(--eg-alert)" : "var(--eg-flow)";
-  const showAnomalyDot = isRunning && forcedAnomalyTurbine != null;
-  const conveyorCount = 7;
-  const conveyorDuration = 4.8;
-  const conveyorSize = 4;
+  const edgeRatio = Math.min(1, edgeStorage.length / EDGE_CAPACITY);
+  const cloudCount = centralStorage.length;
 
   return (
-    <div className="w-full">
-      <div className="relative rounded-xl border border-[var(--eg-border)] bg-[var(--eg-panel)] overflow-hidden shadow-[0_8px_60px_rgba(0,0,0,0.6)]">
-        {/* Status banner overlay */}
-        <AnimatePresence>
-          {!isOnline && isRunning && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
-              className="pointer-events-none absolute left-4 right-4 top-3 z-20 rounded-md border border-[var(--eg-anomaly)] bg-[var(--eg-anomaly)] px-4 py-2 text-center shadow-[0_10px_24px_rgba(249,59,24,0.22)]"
-            >
-              <span className="font-display text-[11px] tracking-[0.08em] text-white font-bold">
-                NETWORK DISCONNECTED — EDGE ISOLATION MODE
-              </span>
-            </motion.div>
-          )}
-        </AnimatePresence>
+    <div className="overflow-x-auto">
+      <div
+        className="relative mx-auto min-w-[1088px]"
+        style={{ height: SCENE.height }}
+      >
+        <PipelineDiagram
+          isRunning={isRunning}
+          isOnline={isOnline}
+          isRecoverySyncActive={isRecoverySyncActive}
+          forcedAnomalyTurbine={forcedAnomalyTurbine}
+          edgeRatio={edgeRatio}
+          edgeCount={edgeStorage.length}
+          cloudCount={cloudCount}
+          compactionCount={compactionCount}
+        />
 
-        <svg
-          viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
-          className="w-full h-auto block"
-          style={{ minHeight: "240px" }}
-          aria-hidden
-        >
-          <defs>
-            <linearGradient id="pipe-glow-left" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="var(--eg-flow)" stopOpacity="0.2" />
-              <stop offset="50%" stopColor="var(--eg-flow)" stopOpacity="0.7" />
-              <stop offset="100%" stopColor="var(--eg-flow)" stopOpacity="0.5" />
-            </linearGradient>
-            <linearGradient id="pipe-glow-right-on" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="var(--eg-flow)" stopOpacity="0.5" />
-              <stop offset="50%" stopColor="var(--eg-flow)" stopOpacity="0.6" />
-              <stop offset="100%" stopColor="var(--eg-flow)" stopOpacity="0.15" />
-            </linearGradient>
-            <linearGradient id="pipe-glow-right-off" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="var(--eg-muted)" stopOpacity="0.2" />
-              <stop offset="100%" stopColor="var(--eg-muted)" stopOpacity="0.05" />
-            </linearGradient>
+        {[1, 2, 3].map((turbineId, index) => {
+          const history = perTurbineHistory[turbineId] ?? [];
+          const latest = history[history.length - 1];
+          const power = latest?.value ?? 0;
+          const anomalyActive = forcedAnomalyTurbine === turbineId;
 
-            <filter id="glow-cyan" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-            <filter id="glow-red" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="4" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-
-          {/* === PIPES === */}
-          <path d={PIPE_PATH_LEFT} fill="none" stroke={isRunning ? "var(--eg-border)" : "var(--eg-muted)"} strokeWidth={20} strokeLinecap="round" opacity={isRunning ? 1 : 0.3} />
-          {isRunning && <path d={PIPE_PATH_LEFT} fill="none" stroke="url(#pipe-glow-left)" strokeWidth={10} strokeLinecap="round" />}
-          {isRunning && (
-            <ConveyorLane
-              path={PIPE_PATH_LEFT}
-              color={conveyorColor}
-              count={conveyorCount}
-              duration={conveyorDuration}
-              size={conveyorSize}
-              anomalyActive={showAnomalyDot}
+          return (
+            <TurbineStageCard
+              key={turbineId}
+              x={SCENE.turbineX}
+              y={SCENE.turbineYs[index]}
+              title={`Turbine ${turbineId}`}
+              status={anomalyActive ? "anomaly burst armed" : isRunning ? "telemetry live" : "standby"}
+              power={power}
+              anomalyActive={anomalyActive}
+              isRunning={isRunning}
             />
-          )}
-
-          <path d={PIPE_PATH_RIGHT} fill="none" stroke={isRunning ? "var(--eg-border)" : "var(--eg-muted)"} strokeWidth={20} strokeLinecap="round" opacity={isRunning ? 1 : 0.3} />
-          {isRunning && (
-            <path
-              d={PIPE_PATH_RIGHT}
-              fill="none"
-              stroke={isOnline ? "url(#pipe-glow-right-on)" : "url(#pipe-glow-right-off)"}
-              strokeWidth={10}
-              strokeLinecap="round"
-            />
-          )}
-          {isOnline && isRunning && (
-            <ConveyorLane
-              path={PIPE_PATH_RIGHT}
-              color="var(--eg-flow)"
-              count={conveyorCount}
-              duration={conveyorDuration}
-              size={conveyorSize}
-              opacity={0.75}
-            />
-          )}
-
-          {/* Section labels */}
-          {isRunning && (
-            <>
-              <text x={PIPE_START_X + 15} y={PIPE_Y - 18} fill="var(--eg-text-dim)" fontSize="10" fontFamily="IBM Plex Sans, Segoe UI, sans-serif" opacity={0.6}>
-                INGEST
-              </text>
-              <text x={VALVE_X + 40} y={PIPE_Y - 18} fill="var(--eg-text-dim)" fontSize="10" fontFamily="IBM Plex Sans, Segoe UI, sans-serif" opacity={isOnline ? 0.6 : 0.25}>
-                CLOUD SYNC
-              </text>
-            </>
-          )}
-
-          {/* === TURBINES (triangular formation) === */}
-          {TURBINE_POSITIONS.map((pos, index) => {
-            const turbineId = index + 1;
-            const active = forcedAnomalyTurbine === turbineId;
-            const hubY = pos.y - 34;
-            return (
-              <TurbineGlyph
-                key={turbineId}
-                x={pos.x}
-                y={pos.y}
-                hubY={hubY}
-                active={active}
-                label={`T${turbineId}`}
-                isRunning={isRunning}
-                onActivate={() => setForcedAnomalyTurbine(active ? null : turbineId)}
-              />
-            );
-          })}
-
-          {/* === EDGE AI CHIP === */}
-          <AIChipNode x={BRAIN_X} y={PIPE_Y} isRunning={isRunning} />
-
-          {/* === BUFFER TANK === */}
-          <BufferTank
-            x={BUFFER_X}
-            y={PIPE_Y}
-            ratio={bufferRatio}
-            inCompactionZone={inCompactionZone}
-            compactionFlash={compactionFlash}
-            isRunning={isRunning}
-          />
-
-          {/* === VALVE === */}
-          <ValveNode
-            x={VALVE_X}
-            y={PIPE_Y}
-            isOnline={isOnline}
-            isRunning={isRunning}
-            onToggle={() => setOnline(!isOnline)}
-          />
-
-          {/* === CENTRAL DB === */}
-          <CentralDBNode
-            x={CENTRAL_X}
-            y={PIPE_Y}
-            count={centralStorage.length}
-            isOnline={isOnline}
-            isRunning={isRunning}
-          />
-        </svg>
-
+          );
+        })}
       </div>
     </div>
   );

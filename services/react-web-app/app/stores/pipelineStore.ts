@@ -3,7 +3,6 @@ import type {
   EdgeGuardItem,
   DataPoint,
   CompactedBlock,
-  Packet,
 } from "~/types/edgeguard";
 import type {
   Metrics,
@@ -16,18 +15,15 @@ import type {
 
 export type CompactionLogEntry = ApiCompactionLogEntry;
 
-const PROGRESS_SPEED_TO_BUFFER = 0.36;
-const PROGRESS_SPEED_TO_CENTRAL = 0.32;
-
-export const EDGE_CAPACITY = 10;
-export const COMPACTION_THRESHOLD = 20;
+export const EDGE_CAPACITY = 100;
+export const COMPACTION_THRESHOLD = 80;
 
 export interface PipelineState {
-  packetsInTransit: Packet[];
   edgeStorage: EdgeGuardItem[];
   centralStorage: EdgeGuardItem[];
   isOnline: boolean;
   isRunning: boolean;
+  isRecoverySyncActive: boolean;
   isInitialized: boolean;
   introComplete: boolean;
   compactionLogs: CompactionLogEntry[];
@@ -58,11 +54,11 @@ export interface PipelineState {
 }
 
 export const usePipelineStore = create<PipelineState>((set, get) => ({
-  packetsInTransit: [],
   edgeStorage: [],
   centralStorage: [],
   isOnline: true,
   isRunning: false,
+  isRecoverySyncActive: false,
   isInitialized: false,
   introComplete: false,
   compactionLogs: [],
@@ -83,7 +79,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   completeIntro: () => set({ introComplete: true }),
   clearPipelineData: () =>
     set((s) => ({
-      packetsInTransit: [],
       edgeStorage: [],
       centralStorage: [],
       compactionLogs: [],
@@ -98,38 +93,13 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       compactionFlashId: null,
       isRunning: s.isRunning,
       isOnline: s.isOnline,
+      isRecoverySyncActive: s.isRecoverySyncActive,
       isInitialized: s.isInitialized,
       introComplete: s.introComplete,
     })),
 
   advanceTransit: (delta) => {
-    const { packetsInTransit } = get();
-    const toAddEdge: EdgeGuardItem[] = [];
-    const toAddCentral: EdgeGuardItem[] = [];
-    const completedIds = new Set<string>();
-
-    for (const p of packetsInTransit) {
-      const speed =
-        p.segment === "to-buffer"
-          ? PROGRESS_SPEED_TO_BUFFER
-          : PROGRESS_SPEED_TO_CENTRAL;
-      const nextProgress = Math.min(1, p.progress + delta * speed);
-      if (nextProgress >= 1) {
-        completedIds.add(p.id);
-      }
-    }
-
-    set((s) => ({
-      packetsInTransit: s.packetsInTransit
-        .map((p) => {
-          const speed =
-            p.segment === "to-buffer"
-              ? PROGRESS_SPEED_TO_BUFFER
-              : PROGRESS_SPEED_TO_CENTRAL;
-          return { ...p, progress: Math.min(1, p.progress + delta * speed) };
-        })
-        .filter((p) => p.progress < 1),
-    }));
+    void delta;
   },
 
   // ---- SSE event handlers ----
@@ -142,10 +112,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       history[point.sourceTurbine] = turbineHist;
 
       return {
-        packetsInTransit: [
-          ...s.packetsInTransit,
-          { id: point.id, progress: 0, segment: "to-buffer" as const, payload: point },
-        ],
         perTurbineHistory: history,
         totalPacketsEmitted: s.totalPacketsEmitted + 1,
         totalAnomalies: s.totalAnomalies + (point.type === "anomaly" ? 1 : 0),
@@ -170,10 +136,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
         lastDrainedItemId: id,
         edgeStorage: s.edgeStorage.slice(1),
         edgePressure: Math.max(0, s.edgePressure - 0.04),
-        packetsInTransit: [
-          ...s.packetsInTransit,
-          { id, progress: 0, segment: "to-central" as const, payload: data.item },
-        ],
       };
     }),
 
@@ -198,6 +160,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     set({
       isRunning: data.isRunning,
       isOnline: data.isOnline,
+      isRecoverySyncActive: data.isRecoverySyncActive,
       isInitialized: data.isInitialized,
     }),
 }));

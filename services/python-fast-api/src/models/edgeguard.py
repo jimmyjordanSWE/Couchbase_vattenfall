@@ -66,6 +66,7 @@ class SystemStatus(BaseModel):
     is_running: bool = Field(alias="isRunning")
     is_initialized: bool = Field(alias="isInitialized")
     is_online: bool = Field(alias="isOnline")
+    is_recovery_sync_active: bool = Field(alias="isRecoverySyncActive")
     sequence_number: int = Field(alias="sequenceNumber")
 
     model_config = {"populate_by_name": True}

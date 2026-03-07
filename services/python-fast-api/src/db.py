@@ -92,21 +92,34 @@ async def edge_clear_all_docs() -> int:
     response.raise_for_status()
 
     rows = response.json().get("rows", [])
-    deleted = 0
+    docs = []
     for row in rows:
         doc_id = row.get("id")
         rev = row.get("value", {}).get("rev")
-        if not doc_id or not rev:
-            continue
+        if doc_id and rev:
+            docs.append({"_id": doc_id, "_rev": rev, "_deleted": True})
 
-        delete_response = await client.delete(f"{_ES_BASE_URL}/{doc_id}", params={"rev": rev})
-        if delete_response.status_code not in (200, 202):
-            _log_warn(
-                f"Edge Server DELETE failed ({doc_id}): "
-                f"HTTP {delete_response.status_code} — {delete_response.text[:120]}"
-            )
-            continue
-        deleted += 1
+    if not docs:
+        return 0
+
+    deleted = 0
+    batch_size = 500
+    for start in range(0, len(docs), batch_size):
+        batch = docs[start : start + batch_size]
+        bulk_response = await client.post(
+            f"{_ES_BASE_URL}/_bulk_docs",
+            json={"docs": batch},
+        )
+        bulk_response.raise_for_status()
+
+        for result in bulk_response.json():
+            if "error" in result:
+                _log_warn(
+                    f"Edge Server bulk delete failed ({result.get('id')}): "
+                    f"{result.get('error')} {result.get('reason', '')}".strip()
+                )
+                continue
+            deleted += 1
 
     return deleted
 
@@ -204,13 +217,8 @@ async def clear_central_pipeline_data() -> int:
         if ks is None:
             continue
 
-        rows = await list_async(ks, limit=10000)
-        for row in rows:
-            key = row.get("id")
-            if not key:
-                continue
-            await remove_async(ks, key)
-            deleted += 1
+        deleted += await count_async(ks)
+        await _run_in_thread(ks.query, "DELETE FROM ${keyspace}")
 
     return deleted
 

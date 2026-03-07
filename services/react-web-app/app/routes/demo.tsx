@@ -1,5 +1,4 @@
 import type { Route } from "./+types/demo";
-import { usePipelineLoop } from "~/hooks/usePipelineLoop";
 import { useEventStream } from "~/hooks/useEventStream";
 import { PipelineView } from "~/components/pipeline/PipelineView";
 import { PipelineAuditTicker } from "~/components/pipeline/PipelineAuditTicker";
@@ -154,7 +153,6 @@ export default function Demo() {
   const totalAnomalies = usePipelineStore((s) => s.totalAnomalies);
   const clearPipelineData = usePipelineStore((s) => s.clearPipelineData);
 
-  usePipelineLoop(isRunning);
   useEventStream(isInitialized);
 
   const showBoot = !isInitialized;
@@ -246,7 +244,7 @@ export default function Demo() {
                 {isRunning ? "Live simulation" : "System idle"}
               </div>
               <div className="rounded-2xl border border-[var(--eg-border)] bg-white px-4 py-2 text-[13px] text-[var(--eg-text)]">
-                Edge capacity 10
+                Edge capacity 100
               </div>
             </div>
           </section>
@@ -263,9 +261,6 @@ export default function Demo() {
                 <div>
                   <div className="text-[11px] font-display font-semibold tracking-[0.08em] text-[var(--eg-text-dim)]">
                     DATA PIPELINE
-                  </div>
-                  <div className="mt-1 text-2xl font-semibold text-[var(--eg-text)]">
-                    Edge to central replication
                   </div>
                 </div>
                 <div className="rounded-full bg-[var(--eg-alert)]/18 px-4 py-2 text-[12px] font-display font-semibold tracking-[0.06em] text-[var(--eg-text)]">
