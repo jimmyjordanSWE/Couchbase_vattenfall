@@ -1,12 +1,23 @@
 import type { Route } from "./+types/demo";
+import { useEffect } from "react";
 import { useEventStream } from "~/hooks/useEventStream";
 import { PipelineView } from "~/components/pipeline/PipelineView";
-import { PipelineAuditTicker } from "~/components/pipeline/PipelineAuditTicker";
 import { TurbineCard } from "~/components/dashboard/TurbineCard";
 import { CentralStorageCard, EdgeStorageCard } from "~/components/dashboard/StoragePanel";
 import { CentralDataTable, EdgeDataTable } from "~/components/dashboard/DataTables";
 import { IntroTour } from "~/components/dashboard/IntroTour";
-import { usePipelineStore } from "~/stores/pipelineStore";
+import {
+  RECOVERY_SYNC_INTERVAL_MS,
+  selectCanClear,
+  selectCanMeshUnload,
+  selectCanStart,
+  selectCanStop,
+  selectCanToggleLink,
+  selectIsMeshUnloadActive,
+  selectIsOnline,
+  selectIsRunning,
+  usePipelineStore,
+} from "~/stores/pipelineStore";
 import { edgeguardApi } from "~/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { Play, RotateCcw, Square, WifiOff, Wifi } from "lucide-react";
@@ -51,8 +62,10 @@ function BootOverlay() {
 
       usePipelineStore.setState({
         isInitialized: true,
-        isRunning: false,
-        isOnline: status.isOnline,
+        systemState: "idle",
+        transportState: status.isOnline
+          ? (status.isRecoverySyncActive ? "online_recovery" : "online_steady")
+          : "offline_buffering",
       });
       return;
     } catch {
@@ -60,8 +73,8 @@ function BootOverlay() {
     }
 
     usePipelineStore.setState({
-      isRunning: false,
-      isOnline: true,
+      systemState: "idle",
+      transportState: "online_steady",
     });
     localInitialize();
   };
@@ -146,14 +159,34 @@ function BootOverlay() {
 }
 
 export default function Demo() {
-  const isRunning = usePipelineStore((s) => s.isRunning);
+  const isRunning = usePipelineStore(selectIsRunning);
   const isInitialized = usePipelineStore((s) => s.isInitialized);
-  const isOnline = usePipelineStore((s) => s.isOnline);
+  const isOnline = usePipelineStore(selectIsOnline);
   const totalPackets = usePipelineStore((s) => s.totalPacketsEmitted);
   const totalAnomalies = usePipelineStore((s) => s.totalAnomalies);
   const clearPipelineData = usePipelineStore((s) => s.clearPipelineData);
+  const isMeshUnloadActive = usePipelineStore(selectIsMeshUnloadActive);
+  const canStart = usePipelineStore(selectCanStart);
+  const canStop = usePipelineStore(selectCanStop);
+  const canClear = usePipelineStore(selectCanClear);
+  const canToggleLink = usePipelineStore(selectCanToggleLink);
+  const canMeshUnload = usePipelineStore(selectCanMeshUnload);
+  const edgeStorageLength = usePipelineStore((s) => s.edgeStorage.length);
+  const toggleMeshUnload = usePipelineStore((s) => s.toggleMeshUnload);
+  const beginClearing = usePipelineStore((s) => s.beginClearing);
+  const finishClearing = usePipelineStore((s) => s.finishClearing);
 
   useEventStream(isInitialized);
+
+  useEffect(() => {
+    if (!isMeshUnloadActive) return;
+
+    const id = window.setInterval(() => {
+      usePipelineStore.getState().drainMeshStep();
+    }, RECOVERY_SYNC_INTERVAL_MS);
+
+    return () => window.clearInterval(id);
+  }, [isMeshUnloadActive]);
 
   const showBoot = !isInitialized;
   const showTour = false;
@@ -162,11 +195,14 @@ export default function Demo() {
   const stopSystem = () => { edgeguardApi.stop().catch(() => {}); };
   const toggleConnection = () => { edgeguardApi.setConnection(!isOnline).catch(() => {}); };
   const clearDatabase = async () => {
+    beginClearing();
     try {
       await edgeguardApi.clearDatabase();
       clearPipelineData();
     } catch {
       // no-op in UI for now
+    } finally {
+      finishClearing();
     }
   };
 
@@ -207,7 +243,8 @@ export default function Demo() {
             {isRunning ? (
               <button
                 onClick={stopSystem}
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--eg-anomaly)] bg-[var(--eg-anomaly)] px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] text-white"
+                disabled={!canStop}
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--eg-anomaly)] bg-[var(--eg-anomaly)] px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] text-white disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Square className="h-4 w-4" />
                 Stop System
@@ -215,26 +252,40 @@ export default function Demo() {
             ) : (
               <button
                 onClick={startSystem}
-                className="inline-flex items-center gap-2 rounded-full bg-[var(--eg-flow)] px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] text-white"
+                disabled={!canStart}
+                className="inline-flex items-center gap-2 rounded-full bg-[var(--eg-flow)] px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] text-white disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Play className="h-4 w-4" />
                 Start System
               </button>
             )}
             <button
+              onClick={toggleMeshUnload}
+              disabled={!canMeshUnload}
+              className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] ${
+                isMeshUnloadActive
+                  ? "border border-[var(--eg-alert)] bg-[var(--eg-alert)] text-[var(--eg-text)]"
+                  : "border border-[var(--eg-border)] bg-white text-[var(--eg-flow)]"
+              } disabled:cursor-not-allowed disabled:opacity-45`}
+            >
+              {isMeshUnloadActive ? "Mesh Unload Active" : "Activate Mesh Unload"}
+            </button>
+            <button
               onClick={toggleConnection}
+              disabled={!canToggleLink}
               className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] ${
                 isOnline
                   ? "border border-[var(--eg-anomaly)] bg-[var(--eg-anomaly)] text-white"
                   : "border border-[var(--eg-flow)] bg-white text-[var(--eg-flow)]"
-              }`}
+              } disabled:cursor-not-allowed disabled:opacity-45`}
             >
               {isOnline ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4" />}
               {isOnline ? "Kill Connection" : "Restore Link"}
             </button>
             <button
               onClick={clearDatabase}
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--eg-border)] bg-white px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] text-[var(--eg-flow)]"
+              disabled={!canClear}
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--eg-border)] bg-white px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] text-[var(--eg-flow)] disabled:cursor-not-allowed disabled:opacity-45"
             >
               <RotateCcw className="h-4 w-4" />
               Clear Database
@@ -245,6 +296,9 @@ export default function Demo() {
               </div>
               <div className="rounded-2xl border border-[var(--eg-border)] bg-white px-4 py-2 text-[13px] text-[var(--eg-text)]">
                 Edge capacity 100
+              </div>
+              <div className="rounded-2xl border border-[var(--eg-border)] bg-white px-4 py-2 text-[13px] text-[var(--eg-text)]">
+                Mesh queue {edgeStorageLength}
               </div>
             </div>
           </section>
@@ -282,9 +336,6 @@ export default function Demo() {
             </div>
           </section>
 
-          <div className="pb-6">
-            <PipelineAuditTicker />
-          </div>
         </main>
       </div>
     </div>

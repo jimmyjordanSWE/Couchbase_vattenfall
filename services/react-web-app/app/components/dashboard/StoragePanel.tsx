@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { usePipelineStore, EDGE_CAPACITY, COMPACTION_THRESHOLD } from "~/stores/pipelineStore";
+import {
+  usePipelineStore,
+  EDGE_CAPACITY,
+  COMPACTION_THRESHOLD,
+  selectIsOnline,
+} from "~/stores/pipelineStore";
 import { isCompactedBlock, isDataPoint } from "~/types/edgeguard";
 
 function StorageCardShell({
@@ -122,7 +127,7 @@ export function EdgeStorageCard({ delay }: { delay?: number }) {
 
 export function CentralStorageCard({ delay }: { delay?: number }) {
   const centralStorage = usePipelineStore((s) => s.centralStorage);
-  const isOnline = usePipelineStore((s) => s.isOnline);
+  const isOnline = usePipelineStore(selectIsOnline);
   const lastSyncTimestamp = usePipelineStore((s) => s.lastSyncTimestamp);
   const lastDrainedItemId = usePipelineStore((s) => s.lastDrainedItemId);
 

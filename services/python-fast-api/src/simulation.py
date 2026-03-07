@@ -115,8 +115,7 @@ class SimulationEngine:
         self.total_anomalies:       int  = 0
         self.last_sync_timestamp:   int | None = None
         self.edge_pressure:         float = 0.0
-        self.forced_anomaly_turbine: int | None = None
-        self.anomaly_burst_left:    int  = 0
+        self.queued_anomaly_turbines: list[int] = []
         self.recovery_drain_active: bool = False
 
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
@@ -156,21 +155,15 @@ class SimulationEngine:
 
     def _generate_point(self) -> DataPoint:
         seq = self._next_seq()
-        force_anomaly = (
-            self.forced_anomaly_turbine is not None
-            and self.anomaly_burst_left > 0
-        )
+        force_anomaly = bool(self.queued_anomaly_turbines)
         source_turbine = (
-            self.forced_anomaly_turbine
-            if self.forced_anomaly_turbine is not None
+            self.queued_anomaly_turbines.pop(0)
+            if force_anomaly
             else (seq % TURBINE_COUNT) + 1
         )
 
         if force_anomaly:
             sensor_dict = generate_anomalous_point(source_turbine, seq)
-            self.anomaly_burst_left -= 1
-            if self.anomaly_burst_left <= 0:
-                self.forced_anomaly_turbine = None
         else:
             sensor_dict = generate_normal_point(source_turbine, seq)
 
@@ -444,8 +437,7 @@ class SimulationEngine:
         self.total_anomalies = 0
         self.last_sync_timestamp = None
         self.edge_pressure = 0.0
-        self.forced_anomaly_turbine = None
-        self.anomaly_burst_left = 0
+        self.queued_anomaly_turbines = []
         self.recovery_drain_active = False
         self._publish("system_status", self.get_status_dict())
         self._publish_metrics()
@@ -496,13 +488,14 @@ class SimulationEngine:
         self._publish("system_status", self.get_status_dict())
 
     def inject_anomaly(self, turbine_id: int) -> None:
-        self.forced_anomaly_turbine = turbine_id
-        self.anomaly_burst_left = 8  # slightly longer burst so IF has more data
+        self.queued_anomaly_turbines.append(turbine_id)
 
     def clear_anomaly(self, turbine_id: int) -> None:
-        if self.forced_anomaly_turbine == turbine_id:
-            self.forced_anomaly_turbine = None
-            self.anomaly_burst_left = 0
+        self.queued_anomaly_turbines = [
+            queued_turbine
+            for queued_turbine in self.queued_anomaly_turbines
+            if queued_turbine != turbine_id
+        ]
 
 
 def _now_ms() -> int:

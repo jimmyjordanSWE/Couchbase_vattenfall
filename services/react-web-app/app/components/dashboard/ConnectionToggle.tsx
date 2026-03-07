@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { usePipelineStore } from "~/stores/pipelineStore";
+import { usePipelineStore, selectIsOnline } from "~/stores/pipelineStore";
 import { edgeguardApi } from "~/lib/api";
 
 export function ConnectionToggle({ delay }: { delay: number }) {
-  const isOnline = usePipelineStore((s) => s.isOnline);
+  const isOnline = usePipelineStore(selectIsOnline);
   const clearPipelineData = usePipelineStore((s) => s.clearPipelineData);
   const [isClearing, setIsClearing] = useState(false);
 

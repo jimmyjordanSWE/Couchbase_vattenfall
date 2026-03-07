@@ -106,19 +106,11 @@ export function TurbineCard({
   turbineId: number;
   delay: number;
 }) {
-  const history              = usePipelineStore((s) => s.perTurbineHistory[turbineId] || []);
-  const forcedAnomalyTurbine = usePipelineStore((s) => s.forcedAnomalyTurbine);
+  const history = usePipelineStore((s) => s.perTurbineHistory[turbineId] || []);
+  const activeTransitCount = usePipelineStore(
+    (s) => s.anomalyTransitTokens.filter((token) => token.turbineId === turbineId).length,
+  );
 
-  const setForcedAnomalyTurbine = (id: number | null) => {
-    if (id != null) {
-      edgeguardApi.injectAnomaly(id).catch(() => {});
-    } else {
-      edgeguardApi.clearAnomaly(turbineId).catch(() => {});
-    }
-    usePipelineStore.setState({ forcedAnomalyTurbine: id });
-  };
-
-  const isActive   = forcedAnomalyTurbine === turbineId;
   const lastPoint  = history[history.length - 1];
   const lastValue  = lastPoint?.value ?? 0;
   const lastScore  = lastPoint?.anomalyScore ?? 0;
@@ -153,7 +145,7 @@ export function TurbineCard({
       animate={{ opacity: 1, x: 0 }}
       transition={{ type: "spring", stiffness: 300, damping: 24, delay }}
       className={`eg-panel p-5 transition-all duration-300 ${
-        isActive ? "glow-red-box border-[var(--eg-anomaly)]/50" : ""
+        activeTransitCount > 0 ? "glow-red-box border-[var(--eg-anomaly)]/50" : ""
       }`}
     >
       {/* Header */}
@@ -225,14 +217,16 @@ export function TurbineCard({
 
       {/* Inject button */}
       <button
-        onClick={() => setForcedAnomalyTurbine(isActive ? null : turbineId)}
+        onClick={() => {
+          edgeguardApi.injectAnomaly(turbineId).catch(() => {});
+        }}
         className={`w-full py-3 rounded-xl text-[13px] font-display tracking-[0.02em] font-semibold transition-all duration-200 ${
-          isActive
+          activeTransitCount > 0
             ? "bg-[var(--eg-anomaly)] text-white border border-[var(--eg-anomaly)]"
             : "bg-[#f7f9fc] border border-[var(--eg-border)] text-[var(--eg-text)] hover:border-[var(--eg-flow)]/50 hover:text-[var(--eg-flow)]"
         }`}
       >
-        {isActive ? "BURST ACTIVE" : "INJECT ANOMALY"}
+        {activeTransitCount > 0 ? `ANOMALY IN TRANSIT${activeTransitCount > 1 ? ` (${activeTransitCount})` : ""}` : "INJECT ANOMALY"}
       </button>
     </motion.div>
   );

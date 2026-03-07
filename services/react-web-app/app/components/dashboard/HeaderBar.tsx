@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { usePipelineStore, EDGE_CAPACITY } from "~/stores/pipelineStore";
+import {
+  usePipelineStore,
+  EDGE_CAPACITY,
+  selectIsOnline,
+  selectIsRunning,
+} from "~/stores/pipelineStore";
 import { edgeguardApi } from "~/lib/api";
 import { Play, Square } from "lucide-react";
 
 export function HeaderBar() {
-  const isOnline = usePipelineStore((s) => s.isOnline);
-  const isRunning = usePipelineStore((s) => s.isRunning);
+  const isOnline = usePipelineStore(selectIsOnline);
+  const isRunning = usePipelineStore(selectIsRunning);
   const isInitialized = usePipelineStore((s) => s.isInitialized);
   const introComplete = usePipelineStore((s) => s.introComplete);
   const totalPackets = usePipelineStore((s) => s.totalPacketsEmitted);
