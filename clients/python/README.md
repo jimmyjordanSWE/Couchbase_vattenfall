@@ -30,8 +30,8 @@ The nested `clients/` directory is intentional - it allows the package at `clien
 Use the `add-client` tool:
 
 ```bash
-polytope run add-client --name couchbase --language python
-polytope run add-client --name temporal --language python
+pt run add-client --name couchbase --language python
+pt run add-client --name temporal --language python
 ```
 
 ## Environment Variables

@@ -90,10 +90,10 @@ export default function Home() {
               Adding Dependencies
             </h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-              Use the polytope module to add new packages:
+              Use the Bluetext/Polytope tooling to add new packages:
             </p>
             <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-gray-800 dark:text-gray-200">
-              polytope run {`react-web-app`}-add --packages "package-name"
+              pt run {`react-web-app`}-add --packages "package-name"
             </code>
           </div>
 

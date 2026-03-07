@@ -16,6 +16,8 @@ pt run stack --mcp
 pt run <service-name>
 ```
 
+`polytope` is not expected to be installed as a standalone CLI for this repo. Use the Bluetext-provided `pt` command or the MCP tools instead.
+
 Hot reloading is enabled by default. Changes to files in `app/` will automatically reflect in the browser without restarting the container.
 
 ### Adding Dependencies
@@ -23,7 +25,7 @@ Hot reloading is enabled by default. Changes to files in `app/` will automatical
 Use the Polytope module to add packages:
 
 ```bash
-polytope run <service-name>-add --packages "axios react-query"
+pt run <service-name>-add --packages "axios react-query"
 ```
 
 ### Adding Routes
@@ -194,7 +196,7 @@ External Services (databases, APIs, etc.)
 If your frontend needs to use models that depend on clients (e.g., fetching data from Couchbase), configure the environment variables:
 
 ```bash
-polytope run setup-service-for-client --service <this-service> --client couchbase
+pt run setup-service-for-client --service <this-service> --client couchbase
 ```
 
 Then restart the sandbox to apply changes.
