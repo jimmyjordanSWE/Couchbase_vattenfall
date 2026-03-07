@@ -19,12 +19,38 @@ done
 
 echo "Sync Gateway is up. Configuring database..."
 
-# Create the database (use trailing slash to avoid 301 redirect)
-# Use Couchbase credentials for Admin API authentication
-curl -v -X PUT http://127.0.0.1:4985/main/ \
-  -u "${COUCHBASE_USERNAME}:${COUCHBASE_PASSWORD}" \
-  -H "Content-Type: application/json" \
-  -d @/etc/sync_gateway/database.json
+attempt=1
+max_attempts=60
+
+while [ "$attempt" -le "$max_attempts" ]; do
+  # Create the database (use trailing slash to avoid 301 redirect).
+  # This can race the bucket provisioning step, so retry until Couchbase is ready.
+  status_code=$(
+    curl -sS -o /tmp/sync-gateway-db-create.out -w "%{http_code}" \
+      -X PUT http://127.0.0.1:4985/main/ \
+      -u "${COUCHBASE_USERNAME}:${COUCHBASE_PASSWORD}" \
+      -H "Content-Type: application/json" \
+      -d @/etc/sync_gateway/database.json
+  )
+
+  case "$status_code" in
+    200|201|202|409|412)
+      echo "Database configuration accepted with status ${status_code}."
+      break
+      ;;
+    *)
+      echo "Database configuration attempt ${attempt}/${max_attempts} returned ${status_code}:"
+      cat /tmp/sync-gateway-db-create.out
+      if [ "$attempt" -eq "$max_attempts" ]; then
+        echo "Failed to configure Sync Gateway database after ${max_attempts} attempts."
+        exit 1
+      fi
+      sleep 2
+      ;;
+  esac
+
+  attempt=$((attempt + 1))
+done
 
 echo "Database configured."
 

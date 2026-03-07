@@ -45,6 +45,7 @@ export interface PipelineState {
   // UI-only actions (kept local)
   initialize: () => void;
   completeIntro: () => void;
+  clearPipelineData: () => void;
   advanceTransit: (delta: number) => void;
 
   // Actions driven by SSE events from backend
@@ -80,6 +81,26 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
 
   initialize: () => set({ isInitialized: true }),
   completeIntro: () => set({ introComplete: true }),
+  clearPipelineData: () =>
+    set((s) => ({
+      packetsInTransit: [],
+      edgeStorage: [],
+      centralStorage: [],
+      compactionLogs: [],
+      compactionCount: 0,
+      forcedAnomalyTurbine: null,
+      perTurbineHistory: { 1: [], 2: [], 3: [] },
+      totalPacketsEmitted: 0,
+      totalAnomalies: 0,
+      lastSyncTimestamp: null,
+      edgePressure: 0,
+      lastDrainedItemId: null,
+      compactionFlashId: null,
+      isRunning: s.isRunning,
+      isOnline: s.isOnline,
+      isInitialized: s.isInitialized,
+      introComplete: s.introComplete,
+    })),
 
   advanceTransit: (delta) => {
     const { packetsInTransit } = get();

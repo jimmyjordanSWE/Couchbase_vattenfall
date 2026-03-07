@@ -20,6 +20,12 @@ export interface SystemStatus {
   sequenceNumber: number;
 }
 
+export interface ClearDatabaseResult {
+  ok: boolean;
+  edgeDeleted: number;
+  centralDeleted: number;
+}
+
 export interface Metrics {
   totalPacketsEmitted: number;
   totalAnomalies: number;
@@ -99,6 +105,7 @@ export const edgeguardApi = {
   initialize: () => request<{ ok: boolean }>("POST", "/api/system/initialize"),
   start: () => request<{ ok: boolean }>("POST", "/api/system/start"),
   stop: () => request<{ ok: boolean }>("POST", "/api/system/stop"),
+  clearDatabase: () => request<ClearDatabaseResult>("POST", "/api/system/clear-database"),
   setConnection: (online: boolean) =>
     request<{ ok: boolean }>("POST", "/api/connection", { online }),
   injectAnomaly: (turbineId: number) =>

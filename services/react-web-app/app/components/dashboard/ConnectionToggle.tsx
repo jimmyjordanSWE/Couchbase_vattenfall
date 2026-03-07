@@ -1,11 +1,26 @@
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePipelineStore } from "~/stores/pipelineStore";
 import { edgeguardApi } from "~/lib/api";
 
 export function ConnectionToggle({ delay }: { delay: number }) {
   const isOnline = usePipelineStore((s) => s.isOnline);
+  const clearPipelineData = usePipelineStore((s) => s.clearPipelineData);
+  const [isClearing, setIsClearing] = useState(false);
+
   const setOnline = (online: boolean) => {
     edgeguardApi.setConnection(online).catch(() => {});
+  };
+
+  const clearDatabase = async () => {
+    if (isClearing) return;
+    setIsClearing(true);
+    try {
+      await edgeguardApi.clearDatabase();
+      clearPipelineData();
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   return (
@@ -59,6 +74,25 @@ export function ConnectionToggle({ delay }: { delay: number }) {
           />
         ))}
       </div>
+
+      <button
+        onClick={clearDatabase}
+        disabled={isClearing}
+        className="mt-3 w-full rounded-lg border border-[var(--eg-flow)]/25 bg-[var(--eg-surface)] px-3 py-2.5 font-display text-[10px] font-bold tracking-[0.22em] text-[var(--eg-flow)] transition-all duration-300 hover:border-[var(--eg-flow)]/50 hover:bg-[var(--eg-flow)]/8 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <AnimatePresence mode="wait">
+          <motion.span
+            key={isClearing ? "clearing" : "clear"}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.15 }}
+            className="block"
+          >
+            {isClearing ? "CLEARING DATABASE" : "CLEAR COUCHBASE DB"}
+          </motion.span>
+        </AnimatePresence>
+      </button>
     </motion.div>
   );
 }

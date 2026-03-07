@@ -85,6 +85,32 @@ async def edge_put_async(doc: dict, key: str) -> None:
         _log_warn(f"Edge Server PUT failed ({key}): {e}")
 
 
+async def edge_clear_all_docs() -> int:
+    """Delete all documents from the Edge Server database."""
+    client = _get_es_client()
+    response = await client.get(f"{_ES_BASE_URL}/_all_docs")
+    response.raise_for_status()
+
+    rows = response.json().get("rows", [])
+    deleted = 0
+    for row in rows:
+        doc_id = row.get("id")
+        rev = row.get("value", {}).get("rev")
+        if not doc_id or not rev:
+            continue
+
+        delete_response = await client.delete(f"{_ES_BASE_URL}/{doc_id}", params={"rev": rev})
+        if delete_response.status_code not in (200, 202):
+            _log_warn(
+                f"Edge Server DELETE failed ({doc_id}): "
+                f"HTTP {delete_response.status_code} — {delete_response.text[:120]}"
+            )
+            continue
+        deleted += 1
+
+    return deleted
+
+
 # ---------------------------------------------------------------------------
 # Async fire-and-forget helpers (central Couchbase SDK)
 # ---------------------------------------------------------------------------
@@ -167,6 +193,26 @@ async def load_model_state() -> dict | None:
         return result.content_as[dict]
     except Exception:
         return None
+
+
+async def clear_central_pipeline_data() -> int:
+    """Remove pipeline documents from the central Couchbase collections."""
+    keyspaces = [central_readings, central_anomalies, central_compacted]
+    deleted = 0
+
+    for ks in keyspaces:
+        if ks is None:
+            continue
+
+        rows = await list_async(ks, limit=10000)
+        for row in rows:
+            key = row.get("id")
+            if not key:
+                continue
+            await remove_async(ks, key)
+            deleted += 1
+
+    return deleted
 
 
 # ---------------------------------------------------------------------------

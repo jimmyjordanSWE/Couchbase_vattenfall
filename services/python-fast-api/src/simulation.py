@@ -418,6 +418,23 @@ class SimulationEngine:
         self.is_initialized = True
         self._publish("system_status", self.get_status_dict())
 
+    def reset_pipeline_state(self) -> None:
+        """Clear in-memory pipeline state so the UI and emit loop restart cleanly."""
+        self.edge_storage = []
+        self.central_storage = []
+        self.per_turbine_history = {i: [] for i in range(1, TURBINE_COUNT + 1)}
+        self.sequence_number = 1000
+        self.compaction_count = 0
+        self.compaction_logs = []
+        self.total_packets_emitted = 0
+        self.total_anomalies = 0
+        self.last_sync_timestamp = None
+        self.edge_pressure = 0.0
+        self.forced_anomaly_turbine = None
+        self.anomaly_burst_left = 0
+        self._publish("system_status", self.get_status_dict())
+        self._publish_metrics()
+
     async def start(self) -> None:
         if self.is_running:
             return
