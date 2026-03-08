@@ -235,8 +235,11 @@ class SimulationEngine:
     # Drain loop — edge → Sync Gateway → central
     # ------------------------------------------------------------------
 
+    def _is_fast_drain_active(self) -> bool:
+        return self.recovery_drain_active or self.mesh_gateway_active
+
     def _current_drain_interval(self) -> float:
-        if self.recovery_drain_active:
+        if self._is_fast_drain_active():
             return (DRAIN_INTERVAL_MS / RECOVERY_DRAIN_MULTIPLIER) / 1000.0
         return DRAIN_INTERVAL_MS / 1000.0
 
@@ -394,7 +397,7 @@ class SimulationEngine:
         if self.mesh_gateway_active:
             self.compaction_logs.append(
                 CompactionLogEntry(
-                    message="MESH GATEWAY OPEN — DRAINING EDGE BUFFER OFFLINE",
+                    message="MESH GATEWAY OPEN — FAST DRAINING EDGE BUFFER OFFLINE",
                     timestamp=_now_ms(),
                     severity="sync",
                 ).model_dump(by_alias=True)

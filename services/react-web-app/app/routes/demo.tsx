@@ -20,6 +20,29 @@ import {
   usePipelineStore,
 } from "~/stores/pipelineStore";
 
+function DroneBadgeIcon({
+  active,
+  className = "h-4 w-4",
+}: {
+  active: boolean;
+  className?: string;
+}) {
+  const stroke = active ? "currentColor" : "var(--eg-flow)";
+
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <g fill="none" stroke={stroke} strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="6.5" cy="6.5" r="2.75" strokeWidth="1.6" />
+        <circle cx="17.5" cy="6.5" r="2.75" strokeWidth="1.6" />
+        <circle cx="6.5" cy="17.5" r="2.75" strokeWidth="1.6" />
+        <circle cx="17.5" cy="17.5" r="2.75" strokeWidth="1.6" />
+        <path d="M 9 8.5 H 15 M 9 15.5 H 15 M 12 8.5 V 15.5" strokeWidth="1.8" />
+        <rect x="9.25" y="7.25" width="5.5" height="9.5" rx="2.2" strokeWidth="1.5" />
+      </g>
+    </svg>
+  );
+}
+
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "EdgeGuard AI — Command Center" },
@@ -279,6 +302,7 @@ export default function Demo() {
                   : "border border-[var(--eg-border)] bg-white text-[var(--eg-flow)]"
               } disabled:cursor-not-allowed disabled:opacity-45`}
             >
+              <DroneBadgeIcon active={isMeshGatewayActive} />
               {isMeshGatewayActive ? "Close Mesh Gateway" : "Open Mesh Gateway"}
             </button>
 

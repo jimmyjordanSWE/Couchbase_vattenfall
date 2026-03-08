@@ -81,6 +81,47 @@ function WindmillMark({
   );
 }
 
+function DroneMark({ active }: { active: boolean }) {
+  const stroke = active ? "var(--eg-ok)" : "var(--eg-muted)";
+  const opacity = active ? 1 : 0.72;
+
+  return (
+    <>
+      <circle cx="-14" cy="-8" r="5.5" fill="none" stroke={stroke} strokeWidth="2" opacity={opacity} />
+      <circle cx="14" cy="-8" r="5.5" fill="none" stroke={stroke} strokeWidth="2" opacity={opacity} />
+      <circle cx="-14" cy="8" r="5.5" fill="none" stroke={stroke} strokeWidth="2" opacity={opacity} />
+      <circle cx="14" cy="8" r="5.5" fill="none" stroke={stroke} strokeWidth="2" opacity={opacity} />
+      <path
+        d="M -8 -4 L 8 -4 M -8 4 L 8 4 M 0 -4 L 0 4"
+        fill="none"
+        stroke={stroke}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        opacity={opacity}
+      />
+      <rect
+        x="-5.5"
+        y="-7"
+        width="11"
+        height="14"
+        rx="4"
+        fill={active ? "rgba(61, 192, 124, 0.14)" : "rgba(124, 142, 160, 0.12)"}
+        stroke={stroke}
+        strokeWidth="1.6"
+        opacity={opacity}
+      />
+      <path
+        d="M -10 -4 L -8 -4 M 8 -4 L 10 -4 M -10 4 L -8 4 M 8 4 L 10 4"
+        fill="none"
+        stroke={stroke}
+        strokeWidth="2"
+        strokeLinecap="round"
+        opacity={opacity}
+      />
+    </>
+  );
+}
+
 function TurbineStageCard({
   x,
   y,
@@ -407,46 +448,7 @@ function PipelineDiagram({
           stroke={isMeshGatewayActive ? "var(--eg-ok)" : "var(--eg-border-bright)"}
           strokeWidth="1.5"
         />
-        {isMeshGatewayActive ? (
-          <>
-            <path
-              d="M 0 -10 L 0 6 M -7 -1 L 0 6 L 7 -1"
-              fill="none"
-              stroke="var(--eg-ok)"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M -16 10 L 16 10"
-              fill="none"
-              stroke="var(--eg-ok)"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-            />
-          </>
-        ) : (
-          <>
-            <path
-              d="M -16 8 L -6 -2 L 0 4 L 12 -10 L 18 -4"
-              fill="none"
-              stroke="var(--eg-muted)"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity="0.68"
-            />
-            {[
-              [-16, 8],
-              [-6, -2],
-              [0, 4],
-              [12, -10],
-              [18, -4],
-            ].map(([cx, cy]) => (
-              <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="2.4" fill="var(--eg-muted)" opacity="0.68" />
-            ))}
-          </>
-        )}
+        <DroneMark active={isMeshGatewayActive} />
         <text x="0" y="34" textAnchor="middle" fill="var(--eg-text-dim)" fontSize="11" fontWeight="600">
           MESH GATEWAY
         </text>
