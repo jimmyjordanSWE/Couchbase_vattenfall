@@ -95,15 +95,17 @@ function DataRow({
 function DataTable({
   title,
   items,
+  count,
 }: {
   title: string;
   items: EdgeGuardItem[];
+  count?: number;
 }) {
   const visible = items.slice(-MAX_ROWS).reverse();
   const emptyRows = Math.max(0, MAX_ROWS - visible.length);
 
   return (
-    <TableShell title={title} count={items.length}>
+    <TableShell title={title} count={count ?? items.length}>
       <div className="grid grid-rows-[repeat(10,minmax(0,2rem))]">
         {visible.map((item, i) => {
           const key = itemKey(item, items.length - 1 - i);
@@ -133,5 +135,6 @@ export function EdgeDataTable() {
 
 export function CentralDataTable() {
   const centralStorage = usePipelineStore((s) => s.centralStorage);
-  return <DataTable title="CENTRAL LOGS" items={centralStorage} />;
+  const totalCentralCount = usePipelineStore((s) => s.metrics.centralStorageLength);
+  return <DataTable title="CENTRAL LOGS" items={centralStorage} count={totalCentralCount} />;
 }

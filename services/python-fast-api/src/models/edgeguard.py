@@ -54,6 +54,7 @@ class CompactionLogEntry(BaseModel):
 
 class SystemConfig(BaseModel):
     edge_capacity: int = Field(alias="edgeCapacity")
+    central_capacity: int = Field(alias="centralCapacity")
     compaction_threshold: int = Field(alias="compactionThreshold")
     turbine_count: int = Field(alias="turbineCount")
     emit_interval_ms: int = Field(alias="emitIntervalMs")
@@ -67,6 +68,7 @@ class SystemStatus(BaseModel):
     is_initialized: bool = Field(alias="isInitialized")
     is_online: bool = Field(alias="isOnline")
     is_recovery_sync_active: bool = Field(alias="isRecoverySyncActive")
+    is_mesh_gateway_active: bool = Field(alias="isMeshGatewayActive")
     sequence_number: int = Field(alias="sequenceNumber")
 
     model_config = {"populate_by_name": True}
@@ -91,5 +93,17 @@ class ModelStatus(BaseModel):
     threshold: float
     features: list[str]
     version: str
+
+    model_config = {"populate_by_name": True}
+
+
+class PipelineSnapshot(BaseModel):
+    config: SystemConfig
+    status: SystemStatus
+    metrics: Metrics
+    edge_storage: list[dict] = Field(alias="edgeStorage")
+    central_storage: list[dict] = Field(alias="centralStorage")
+    per_turbine_history: dict[int, list[dict]] = Field(alias="perTurbineHistory")
+    compaction_logs: list[CompactionLogEntry] = Field(alias="compactionLogs")
 
     model_config = {"populate_by_name": True}

@@ -9,8 +9,6 @@ Edge Server replicate continuously to Sync Gateway → Couchbase Server.
 from __future__ import annotations
 
 import asyncio
-import math
-import os
 import time
 from typing import Any
 
@@ -21,14 +19,15 @@ from anomaly_detector import (
     generate_anomalous_point,
 )
 from models.edgeguard import (
-    CompactedBlock,
     CompactionLogEntry,
     DataPoint,
     Metrics,
+    PipelineSnapshot,
     SensorData,
     SystemConfig,
     SystemStatus,
 )
+from compaction_policy import CompactionPolicyConfig, compact_edge_buffer
 
 EDGE_CAPACITY = 100
 COMPACTION_THRESHOLD = 80
@@ -39,50 +38,8 @@ RECOVERY_DRAIN_MULTIPLIER = 5
 TURBINE_HISTORY_SIZE = 30
 TIER1_WINDOW_SIZE = 5
 TIER2_MERGE_COUNT = 4
-
-
-# ---------------------------------------------------------------------------
-# Compaction helpers
-# ---------------------------------------------------------------------------
-
-def _std_dev(values: list[float]) -> float:
-    if len(values) < 2:
-        return 0.0
-    mean = sum(values) / len(values)
-    sq = sum((v - mean) ** 2 for v in values)
-    return math.sqrt(sq / (len(values) - 1))
-
-
-def _compact_window(points: list[DataPoint]) -> CompactedBlock:
-    values = [p.value for p in points]
-    seqs   = [p.seq  for p in points]
-    return CompactedBlock(
-        avgValue=sum(values) / len(values),
-        minValue=min(values),
-        maxValue=max(values),
-        stdDev=_std_dev(values),
-        count=len(points),
-        range=f"{min(seqs)}-{max(seqs)}",
-        tier=1,
-    )
-
-
-def _merge_tier1_blocks(blocks: list[CompactedBlock]) -> CompactedBlock:
-    total_count  = sum(b.count for b in blocks)
-    weighted_avg = sum(b.avg_value * b.count for b in blocks) / total_count
-    all_seqs: list[int] = []
-    for b in blocks:
-        parts = b.range.split("-")
-        all_seqs.extend(int(s) for s in parts)
-    return CompactedBlock(
-        avgValue=weighted_avg,
-        minValue=min(b.min_value for b in blocks),
-        maxValue=max(b.max_value for b in blocks),
-        stdDev=max(b.std_dev for b in blocks),
-        count=total_count,
-        range=f"{min(all_seqs)}-{max(all_seqs)}",
-        tier=2,
-    )
+CENTRAL_HISTORY_LIMIT = 120
+COMPACTION_LOG_LIMIT = 80
 
 
 def _compute_pressure(edge_length: int) -> float:
@@ -117,6 +74,9 @@ class SimulationEngine:
         self.edge_pressure:         float = 0.0
         self.queued_anomaly_turbines: list[int] = []
         self.recovery_drain_active: bool = False
+        self.mesh_gateway_active: bool = False
+        self.central_capacity: int = 500
+        self.total_synced_items: int = 0
 
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self._emit_task:   asyncio.Task[None] | None = None
@@ -144,6 +104,15 @@ class SimulationEngine:
                 dead.append(q)
         for q in dead:
             self._subscribers.discard(q)
+
+    def _publish_snapshot(self) -> None:
+        self._publish("snapshot", self.get_snapshot_dict())
+
+    @staticmethod
+    def _trim_recent(items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+        if len(items) <= limit:
+            return items
+        return items[-limit:]
 
     # ------------------------------------------------------------------
     # Data generation
@@ -186,101 +155,27 @@ class SimulationEngine:
     # ------------------------------------------------------------------
 
     def _compact(self) -> None:
-        if self.is_online or len(self.edge_storage) <= COMPACTION_THRESHOLD:
-            return
-
-        anomalies:          list[dict[str, Any]] = []
-        existing_compacted: list[CompactedBlock] = []
-        normals:            list[DataPoint]      = []
-
-        for item in self.edge_storage:
-            if item.get("type") == "compacted":
-                existing_compacted.append(CompactedBlock.model_validate(item))
-            elif "anomalyScore" in item:
-                dp = DataPoint.model_validate(item)
-                if dp.type == "anomaly":
-                    anomalies.append(item)
-                else:
-                    normals.append(dp)
-            else:
-                anomalies.append(item)
-
-        if len(normals) < TIER1_WINDOW_SIZE:
-            tier1 = [b for b in existing_compacted if b.tier == 1]
-            tier2 = [b for b in existing_compacted if b.tier == 2]
-            if len(tier1) >= TIER2_MERGE_COUNT:
-                to_merge  = tier1[:TIER2_MERGE_COUNT]
-                remaining = tier1[TIER2_MERGE_COUNT:]
-                merged = _merge_tier1_blocks(to_merge)
-                new_edge = (
-                    anomalies
-                    + [b.model_dump(by_alias=True) for b in tier2]
-                    + [b.model_dump(by_alias=True) for b in remaining]
-                    + [dp.model_dump(by_alias=True) for dp in normals]
-                    + [merged.model_dump(by_alias=True)]
-                )
-                log_entry = CompactionLogEntry(
-                    message=(
-                        f"T2 MERGE {len(to_merge)} blocks → 1 | "
-                        f"SEQ {merged.range} | {merged.count} pts | "
-                        f"AVG {merged.avg_value:.1f}"
-                    ),
-                    timestamp=_now_ms(),
-                    severity="compaction",
-                )
-                self.edge_storage = new_edge
-                self.compaction_count += 1
-                self.compaction_logs.append(log_entry.model_dump(by_alias=True))
-                self.edge_pressure = _compute_pressure(len(new_edge))
-                self._publish_compaction(log_entry)
-                # Persist compacted block to Couchbase
-                asyncio.create_task(self._persist_compacted(merged.model_dump(by_alias=True)))
-            return
-
-        new_blocks:    list[CompactedBlock] = []
-        log_parts:     list[str] = []
-        i = 0
-        while i + TIER1_WINDOW_SIZE <= len(normals):
-            window = normals[i : i + TIER1_WINDOW_SIZE]
-            block  = _compact_window(window)
-            new_blocks.append(block)
-            log_parts.append(f"[{block.range}]")
-            i += TIER1_WINDOW_SIZE
-        leftover_normals = normals[i:]
-
-        if not new_blocks:
-            return
-
-        new_edge = (
-            anomalies
-            + [b.model_dump(by_alias=True) for b in existing_compacted]
-            + [dp.model_dump(by_alias=True) for dp in leftover_normals]
-            + [b.model_dump(by_alias=True) for b in new_blocks]
-        )
-        compacted_pts = len(normals) - len(leftover_normals)
-        log_entry = CompactionLogEntry(
-            message=(
-                f"T1 COMPACT {' '.join(log_parts)} | "
-                f"{compacted_pts} pts → {len(new_blocks)} blocks"
+        decision = compact_edge_buffer(
+            self.edge_storage,
+            is_online=self.is_online,
+            config=CompactionPolicyConfig(
+                threshold=COMPACTION_THRESHOLD,
+                tier1_window_size=TIER1_WINDOW_SIZE,
+                tier2_merge_count=TIER2_MERGE_COUNT,
             ),
-            timestamp=_now_ms(),
-            severity="compaction",
         )
-        self.edge_storage = new_edge
-        self.compaction_count += 1
-        self.compaction_logs.append(log_entry.model_dump(by_alias=True))
-        self.edge_pressure = _compute_pressure(len(new_edge))
-        self._publish_compaction(log_entry)
-        for block in new_blocks:
-            asyncio.create_task(self._persist_compacted(block.model_dump(by_alias=True)))
+        if not decision.changed:
+            return
 
-    def _publish_compaction(self, log_entry: CompactionLogEntry) -> None:
-        self._publish("compaction", {
-            "log": log_entry.model_dump(by_alias=True),
-            "edgeStorage": self.edge_storage,
-            "compactionCount": self.compaction_count,
-        })
-        self._publish_metrics()
+        self.edge_storage = decision.edge_storage
+        self.compaction_count += 1
+        self.edge_pressure = _compute_pressure(len(self.edge_storage))
+        if decision.log_entry is not None:
+            self.compaction_logs.append(decision.log_entry)
+            self.compaction_logs = self._trim_recent(self.compaction_logs, COMPACTION_LOG_LIMIT)
+        for block in decision.persisted_blocks:
+            asyncio.create_task(self._persist_compacted(block))
+        self._publish_snapshot()
 
     # ------------------------------------------------------------------
     # Couchbase / Sync Gateway persistence helpers
@@ -323,17 +218,9 @@ class SimulationEngine:
             if point.type == "anomaly":
                 self.total_anomalies += 1
 
-            self._publish("telemetry", point_dict)
-
             self.edge_storage.append(point_dict)
             self.edge_pressure = _compute_pressure(len(self.edge_storage))
-
-            self._publish("edge_update", {
-                "item":          point_dict,
-                "storageLength": len(self.edge_storage),
-                "pressure":      self.edge_pressure,
-            })
-            self._publish_metrics()
+            self._publish_snapshot()
 
             # Persist to Edge Server via REST API (non-blocking)
             asyncio.create_task(self._persist_edge_reading(point_dict, point.id))
@@ -356,28 +243,25 @@ class SimulationEngine:
     async def _drain_loop(self) -> None:
         while True:
             await asyncio.sleep(self._current_drain_interval())
-            if not self.is_running or not self.is_online:
+            if not self.is_running or not (self.is_online or self.mesh_gateway_active):
                 continue
             if not self.edge_storage:
                 if self.recovery_drain_active:
                     self.recovery_drain_active = False
-                    self._publish("system_status", self.get_status_dict())
+                    self._publish_snapshot()
                 continue
 
             item = self.edge_storage.pop(0)
             self.edge_pressure = _compute_pressure(len(self.edge_storage))
             self.central_storage.append(item)
+            self.central_storage = self._trim_recent(self.central_storage, CENTRAL_HISTORY_LIMIT)
+            self.total_synced_items += 1
             self.last_sync_timestamp = _now_ms()
-
-            self._publish("central_update", {
-                "item":              item,
-                "lastSyncTimestamp": self.last_sync_timestamp,
-            })
-            self._publish_metrics()
+            self._publish_snapshot()
             if not self.edge_storage:
                 if self.recovery_drain_active:
                     self.recovery_drain_active = False
-                    self._publish("system_status", self.get_status_dict())
+                    self._publish_snapshot()
             # Edge Server continuously replicates to Sync Gateway → Couchbase Server;
             # no explicit push needed here.
 
@@ -396,7 +280,7 @@ class SimulationEngine:
             compactionCount=self.compaction_count,
             lastSyncTimestamp=self.last_sync_timestamp,
             edgeStorageLength=len(self.edge_storage),
-            centralStorageLength=len(self.central_storage),
+            centralStorageLength=self.total_synced_items,
         ).model_dump(by_alias=True)
 
     def get_status_dict(self) -> dict[str, Any]:
@@ -405,16 +289,29 @@ class SimulationEngine:
             isInitialized=self.is_initialized,
             isOnline=self.is_online,
             isRecoverySyncActive=self.recovery_drain_active,
+            isMeshGatewayActive=self.mesh_gateway_active,
             sequenceNumber=self.sequence_number,
         ).model_dump(by_alias=True)
 
     def get_config_dict(self) -> dict[str, Any]:
         return SystemConfig(
             edgeCapacity=EDGE_CAPACITY,
+            centralCapacity=self.central_capacity,
             compactionThreshold=COMPACTION_THRESHOLD,
             turbineCount=TURBINE_COUNT,
             emitIntervalMs=EMIT_INTERVAL_MS,
             drainIntervalMs=DRAIN_INTERVAL_MS,
+        ).model_dump(by_alias=True)
+
+    def get_snapshot_dict(self) -> dict[str, Any]:
+        return PipelineSnapshot(
+            config=self.get_config_dict(),
+            status=self.get_status_dict(),
+            metrics=self.get_metrics_dict(),
+            edgeStorage=self.edge_storage,
+            centralStorage=self.central_storage,
+            perTurbineHistory=self.per_turbine_history,
+            compactionLogs=self.compaction_logs,
         ).model_dump(by_alias=True)
 
     # ------------------------------------------------------------------
@@ -423,7 +320,7 @@ class SimulationEngine:
 
     def initialize(self) -> None:
         self.is_initialized = True
-        self._publish("system_status", self.get_status_dict())
+        self._publish_snapshot()
 
     def reset_pipeline_state(self) -> None:
         """Clear in-memory pipeline state so the UI and emit loop restart cleanly."""
@@ -435,12 +332,13 @@ class SimulationEngine:
         self.compaction_logs = []
         self.total_packets_emitted = 0
         self.total_anomalies = 0
+        self.total_synced_items = 0
         self.last_sync_timestamp = None
         self.edge_pressure = 0.0
         self.queued_anomaly_turbines = []
         self.recovery_drain_active = False
-        self._publish("system_status", self.get_status_dict())
-        self._publish_metrics()
+        self.mesh_gateway_active = False
+        self._publish_snapshot()
 
     async def start(self) -> None:
         if self.is_running:
@@ -448,7 +346,7 @@ class SimulationEngine:
         self.is_running = True
         self._emit_task  = asyncio.create_task(self._emit_loop())
         self._drain_task = asyncio.create_task(self._drain_loop())
-        self._publish("system_status", self.get_status_dict())
+        self._publish_snapshot()
 
     async def stop(self) -> None:
         if not self.is_running:
@@ -460,7 +358,7 @@ class SimulationEngine:
         if self._drain_task:
             self._drain_task.cancel()
             self._drain_task = None
-        self._publish("system_status", self.get_status_dict())
+        self._publish_snapshot()
 
     def set_online(self, online: bool) -> None:
         was_offline = not self.is_online
@@ -468,6 +366,7 @@ class SimulationEngine:
 
         if was_offline and online:
             self.recovery_drain_active = bool(self.edge_storage)
+            self.mesh_gateway_active = False
             self.compaction_logs.append(
                 CompactionLogEntry(
                     message="CONNECTION RESTORED — FAST SYNCING EDGE BUFFER",
@@ -475,8 +374,10 @@ class SimulationEngine:
                     severity="sync",
                 ).model_dump(by_alias=True)
             )
+            self.compaction_logs = self._trim_recent(self.compaction_logs, COMPACTION_LOG_LIMIT)
         elif not online:
             self.recovery_drain_active = False
+            self.mesh_gateway_active = False
             self.compaction_logs.append(
                 CompactionLogEntry(
                     message="CONNECTION LOST — EDGE ISOLATION MODE",
@@ -484,8 +385,30 @@ class SimulationEngine:
                     severity="warning",
                 ).model_dump(by_alias=True)
             )
+            self.compaction_logs = self._trim_recent(self.compaction_logs, COMPACTION_LOG_LIMIT)
 
-        self._publish("system_status", self.get_status_dict())
+        self._publish_snapshot()
+
+    def set_mesh_gateway_active(self, active: bool) -> None:
+        self.mesh_gateway_active = active and not self.is_online
+        if self.mesh_gateway_active:
+            self.compaction_logs.append(
+                CompactionLogEntry(
+                    message="MESH GATEWAY OPEN — DRAINING EDGE BUFFER OFFLINE",
+                    timestamp=_now_ms(),
+                    severity="sync",
+                ).model_dump(by_alias=True)
+            )
+        else:
+            self.compaction_logs.append(
+                CompactionLogEntry(
+                    message="MESH GATEWAY CLOSED",
+                    timestamp=_now_ms(),
+                    severity="info",
+                ).model_dump(by_alias=True)
+            )
+        self.compaction_logs = self._trim_recent(self.compaction_logs, COMPACTION_LOG_LIMIT)
+        self._publish_snapshot()
 
     def inject_anomaly(self, turbine_id: int) -> None:
         self.queued_anomaly_turbines.extend([turbine_id] * 5)

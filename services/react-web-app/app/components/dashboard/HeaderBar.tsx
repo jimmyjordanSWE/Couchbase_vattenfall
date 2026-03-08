@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   usePipelineStore,
-  EDGE_CAPACITY,
   selectIsOnline,
   selectIsRunning,
 } from "~/stores/pipelineStore";
@@ -14,9 +13,10 @@ export function HeaderBar() {
   const isRunning = usePipelineStore(selectIsRunning);
   const isInitialized = usePipelineStore((s) => s.isInitialized);
   const introComplete = usePipelineStore((s) => s.introComplete);
-  const totalPackets = usePipelineStore((s) => s.totalPacketsEmitted);
-  const totalAnomalies = usePipelineStore((s) => s.totalAnomalies);
+  const totalPackets = usePipelineStore((s) => s.metrics.totalPacketsEmitted);
+  const totalAnomalies = usePipelineStore((s) => s.metrics.totalAnomalies);
   const edgeStorage = usePipelineStore((s) => s.edgeStorage);
+  const edgeCapacity = usePipelineStore((s) => s.config.edgeCapacity);
 
   const startSimulation = () => { edgeguardApi.start().catch(() => {}); };
   const stopSimulation = () => { edgeguardApi.stop().catch(() => {}); };
@@ -31,7 +31,7 @@ export function HeaderBar() {
   const anomalyRate = totalPackets > 0
     ? ((totalAnomalies / totalPackets) * 100).toFixed(1)
     : "0.0";
-  const utilization = ((edgeStorage.length / EDGE_CAPACITY) * 100).toFixed(0);
+  const utilization = ((edgeStorage.length / Math.max(edgeCapacity, 1)) * 100).toFixed(0);
 
   const showStartStop = isInitialized && introComplete;
 

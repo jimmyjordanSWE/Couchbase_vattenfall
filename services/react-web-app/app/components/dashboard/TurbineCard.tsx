@@ -107,12 +107,6 @@ export function TurbineCard({
   delay: number;
 }) {
   const history = usePipelineStore((s) => s.perTurbineHistory[turbineId] || []);
-  const activeTransitCount = usePipelineStore(
-    (s) =>
-      s.ingestEntities.filter(
-        (entity) => entity.kind === "anomaly" && entity.turbineId === turbineId,
-      ).length,
-  );
 
   const lastPoint  = history[history.length - 1];
   const lastValue  = lastPoint?.value ?? 0;
@@ -148,7 +142,7 @@ export function TurbineCard({
       animate={{ opacity: 1, x: 0 }}
       transition={{ type: "spring", stiffness: 300, damping: 24, delay }}
       className={`eg-panel p-5 transition-all duration-300 ${
-        activeTransitCount > 0 ? "glow-red-box border-[var(--eg-anomaly)]/50" : ""
+        isAnomaly ? "glow-red-box border-[var(--eg-anomaly)]/50" : ""
       }`}
     >
       {/* Header */}
@@ -224,7 +218,7 @@ export function TurbineCard({
           edgeguardApi.injectAnomaly(turbineId).catch(() => {});
         }}
         className={`w-full py-3 rounded-xl text-[13px] font-display tracking-[0.02em] font-semibold transition-all duration-200 ${
-          activeTransitCount > 0
+          isAnomaly
             ? "bg-[var(--eg-anomaly)] text-white border border-[var(--eg-anomaly)]"
             : "bg-[#f7f9fc] border border-[var(--eg-border)] text-[var(--eg-text)] hover:border-[var(--eg-flow)]/50 hover:text-[var(--eg-flow)]"
         }`}

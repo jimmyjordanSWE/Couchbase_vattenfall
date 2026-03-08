@@ -1,12 +1,12 @@
 import { motion } from "framer-motion";
 import {
-  EDGE_CAPACITY,
-  selectIsMeshUnloadActive,
+  selectIsMeshGatewayActive,
   selectIsOnline,
   selectIsRecoverySyncActive,
   selectIsRunning,
   usePipelineStore,
 } from "~/stores/pipelineStore";
+import { isDataPoint } from "~/types/edgeguard";
 
 const SCENE = {
   width: 1088,
@@ -163,8 +163,7 @@ function FlowStroke({
       opacity={opacity}
       className={`eg-flow-stroke ${active ? "eg-flow-running" : "eg-flow-paused"}`}
       style={{ animationDuration: duration }}
-    >
-    </path>
+    />
   );
 }
 
@@ -172,31 +171,23 @@ function PipelineDiagram({
   isRunning,
   isOnline,
   isRecoverySyncActive,
-  isMeshUnloadActive,
-  ingestEntityCounts,
-  anomalyIngestTurbines,
-  cloudEntityCount,
-  hasCloudAnomaly,
-  meshEntityCount,
-  hasMeshAnomaly,
-  visualEdgeTotalCount,
-  visualEdgeAnomalyCount,
-  visualCentralCount,
+  isMeshGatewayActive,
+  hasRecentAnomaly,
+  edgeCapacity,
+  edgeCount,
+  edgeAnomalyCount,
+  centralCount,
   compactionCount,
 }: {
   isRunning: boolean;
   isOnline: boolean;
   isRecoverySyncActive: boolean;
-  isMeshUnloadActive: boolean;
-  ingestEntityCounts: Record<number, number>;
-  anomalyIngestTurbines: Set<number>;
-  cloudEntityCount: number;
-  hasCloudAnomaly: boolean;
-  meshEntityCount: number;
-  hasMeshAnomaly: boolean;
-  visualEdgeTotalCount: number;
-  visualEdgeAnomalyCount: number;
-  visualCentralCount: number;
+  isMeshGatewayActive: boolean;
+  hasRecentAnomaly: boolean;
+  edgeCapacity: number;
+  edgeCount: number;
+  edgeAnomalyCount: number;
+  centralCount: number;
   compactionCount: number;
 }) {
   const layout = getPipelineLayout();
@@ -221,17 +212,16 @@ function PipelineDiagram({
   const feederFlowDur = "1.1s";
   const ingestFlowDur = "1.0s";
   const syncFlowDur = isRecoverySyncActive ? "0.45s" : "0.9s";
-  const meshFlowDur = "0.9s";
   const tankInnerWidth = 68;
   const tankInnerHeight = 108;
   const tankBottomY = 54;
-  const visualEdgeRatio = Math.min(1, visualEdgeTotalCount / EDGE_CAPACITY);
+  const visualEdgeRatio = Math.min(1, edgeCount / Math.max(edgeCapacity, 1));
   const edgeFillHeight = Math.max(0, visualEdgeRatio * tankInnerHeight);
   const edgeFillTopY = tankBottomY - edgeFillHeight;
-  const anomalyLayerHeight = visualEdgeAnomalyCount > 0
+  const anomalyLayerHeight = edgeAnomalyCount > 0
     ? Math.min(
         edgeFillHeight,
-        (Math.min(visualEdgeAnomalyCount, EDGE_CAPACITY) / EDGE_CAPACITY) * tankInnerHeight,
+        (Math.min(edgeAnomalyCount, edgeCapacity) / Math.max(edgeCapacity, 1)) * tankInnerHeight,
       )
     : 0;
   const normalLayerHeight = Math.max(0, edgeFillHeight - anomalyLayerHeight);
@@ -248,24 +238,12 @@ function PipelineDiagram({
       aria-hidden="true"
     >
       <defs>
-        <linearGradient id="lane-blue" x1="0%" x2="100%" y1="0%" y2="0%">
-          <stop offset="0%" stopColor="rgba(32, 113, 181, 0.14)" />
-          <stop offset="100%" stopColor="rgba(32, 113, 181, 0.30)" />
-        </linearGradient>
-        <linearGradient id="lane-red" x1="0%" x2="100%" y1="0%" y2="0%">
-          <stop offset="0%" stopColor="rgba(249, 59, 24, 0.16)" />
-          <stop offset="100%" stopColor="rgba(249, 59, 24, 0.36)" />
-        </linearGradient>
-        <linearGradient id="belt-body" x1="0%" x2="0%" y1="0%" y2="100%">
-          <stop offset="0%" stopColor="rgba(255,255,255,0.78)" />
-          <stop offset="100%" stopColor="rgba(226,234,243,0.96)" />
-        </linearGradient>
         <clipPath id="edge-tank-fill-clip">
           <rect x="-34" y="-54" width="68" height="108" rx="8" />
         </clipPath>
       </defs>
 
-      {feederPaths.map((path, index) => (
+      {feederPaths.map((path) => (
         <g key={path}>
           <path
             d={path}
@@ -276,7 +254,7 @@ function PipelineDiagram({
           />
           <FlowStroke
             path={path}
-            color={anomalyIngestTurbines.has(index + 1) ? "var(--eg-anomaly)" : "var(--eg-flow)"}
+            color={hasRecentAnomaly ? "var(--eg-anomaly)" : "var(--eg-flow)"}
             width={2.4}
             active={isRunning}
             duration={feederFlowDur}
@@ -289,7 +267,7 @@ function PipelineDiagram({
       <path d={pathIngest} fill="none" stroke="rgba(32, 113, 181, 0.18)" strokeWidth="2" strokeLinecap="round" />
       <FlowStroke
         path={pathIngest}
-        color={anomalyIngestTurbines.size > 0 ? "var(--eg-anomaly)" : "var(--eg-flow)"}
+        color={hasRecentAnomaly ? "var(--eg-anomaly)" : "var(--eg-flow)"}
         width={2.4}
         active={isRunning}
         duration={ingestFlowDur}
@@ -312,12 +290,13 @@ function PipelineDiagram({
       />
       <FlowStroke
         path={pathSync}
-        color={hasCloudAnomaly ? "var(--eg-anomaly)" : "var(--eg-flow)"}
+        color={hasRecentAnomaly ? "var(--eg-anomaly)" : "var(--eg-flow)"}
         width={2.4}
         active={isRunning && isOnline}
         duration={syncFlowDur}
         dashArray="10 14"
       />
+
       <g transform={`translate(${aiX}, ${SCENE.stageY})`}>
         {isRunning ? (
           <circle cx="0" cy="0" r="32" fill="none" stroke="var(--eg-flow)" strokeWidth="0.7" opacity="0.14">
@@ -356,7 +335,7 @@ function PipelineDiagram({
           strokeWidth="1.5"
         />
         <g clipPath="url(#edge-tank-fill-clip)">
-          {visualEdgeAnomalyCount > 0 ? (
+          {edgeAnomalyCount > 0 ? (
             <>
               {normalLayerHeight > 0 ? (
                 <rect
@@ -397,23 +376,23 @@ function PipelineDiagram({
           fontSize="10"
           fontWeight="700"
         >
-          {visualEdgeTotalCount}/{EDGE_CAPACITY}
+          {edgeCount}/{edgeCapacity}
         </text>
       </g>
 
       <path
         d={meshPath}
         fill="none"
-        stroke={isMeshUnloadActive ? "rgba(61, 192, 124, 0.24)" : "rgba(194, 207, 218, 0.7)"}
+        stroke={isMeshGatewayActive ? "rgba(61, 192, 124, 0.24)" : "rgba(194, 207, 218, 0.7)"}
         strokeWidth="2"
         strokeLinecap="round"
       />
       <FlowStroke
         path={meshPath}
-        color={hasMeshAnomaly ? "var(--eg-anomaly)" : "var(--eg-ok)"}
+        color={hasRecentAnomaly ? "var(--eg-anomaly)" : "var(--eg-ok)"}
         width={2.4}
-        active={isRunning && isMeshUnloadActive}
-        duration={meshFlowDur}
+        active={isRunning && isMeshGatewayActive}
+        duration="0.9s"
         dashArray="10 12"
       />
 
@@ -425,10 +404,10 @@ function PipelineDiagram({
           height="36"
           rx="12"
           fill="rgba(255,255,255,0.92)"
-          stroke={isMeshUnloadActive ? "var(--eg-ok)" : "var(--eg-border-bright)"}
+          stroke={isMeshGatewayActive ? "var(--eg-ok)" : "var(--eg-border-bright)"}
           strokeWidth="1.5"
         />
-        {isMeshUnloadActive ? (
+        {isMeshGatewayActive ? (
           <>
             <path
               d="M 0 -10 L 0 6 M -7 -1 L 0 6 L 7 -1"
@@ -516,7 +495,7 @@ function PipelineDiagram({
         />
         <ellipse cx="0" cy="24" rx="31" ry="9" fill="none" stroke="var(--eg-border-bright)" strokeWidth="1.4" />
         <text x="0" y="10" textAnchor="middle" fill="var(--eg-flow)" fontSize="18" fontWeight="700">
-          {visualCentralCount}
+          {centralCount}
         </text>
         <text x="0" y="54" textAnchor="middle" fill="var(--eg-text-dim)" fontSize="11" fontWeight="600">
           COUCHBASE CLOUD
@@ -540,27 +519,20 @@ export function PipelineView() {
   const isRunning = usePipelineStore(selectIsRunning);
   const isOnline = usePipelineStore(selectIsOnline);
   const isRecoverySyncActive = usePipelineStore(selectIsRecoverySyncActive);
-  const isMeshUnloadActive = usePipelineStore(selectIsMeshUnloadActive);
-  const compactionCount = usePipelineStore((s) => s.compactionCount);
+  const isMeshGatewayActive = usePipelineStore(selectIsMeshGatewayActive);
+  const edgeCapacity = usePipelineStore((s) => s.config.edgeCapacity);
+  const compactionCount = usePipelineStore((s) => s.metrics.compactionCount);
+  const centralCount = usePipelineStore((s) => s.metrics.centralStorageLength);
   const perTurbineHistory = usePipelineStore((s) => s.perTurbineHistory);
-  const ingestEntities = usePipelineStore((s) => s.ingestEntities);
-  const cloudEntities = usePipelineStore((s) => s.cloudEntities);
-  const meshEntities = usePipelineStore((s) => s.meshEntities);
-  const visualEdgeTotalCount = usePipelineStore((s) => s.visualEdgeTotalCount);
-  const visualEdgeAnomalyCount = usePipelineStore((s) => s.visualEdgeAnomalyCount);
-  const visualCentralCount = usePipelineStore((s) => s.visualCentralCount);
+  const edgeStorage = usePipelineStore((s) => s.edgeStorage);
 
-  const ingestEntityCounts = {
-    1: ingestEntities.filter((entity) => entity.turbineId === 1).length,
-    2: ingestEntities.filter((entity) => entity.turbineId === 2).length,
-    3: ingestEntities.filter((entity) => entity.turbineId === 3).length,
-  };
-  const anomalyIngestTurbines = new Set(
-    ingestEntities
-      .filter((entity) => entity.kind === "anomaly")
-      .map((entity) => entity.turbineId)
-      .filter((turbineId): turbineId is number => turbineId != null),
-  );
+  const edgeAnomalyCount = edgeStorage.filter(
+    (item) => isDataPoint(item) && item.type === "anomaly",
+  ).length;
+  const hasRecentAnomaly = Object.values(perTurbineHistory).some((history) => {
+    const latest = history[history.length - 1];
+    return latest?.type === "anomaly";
+  });
 
   return (
     <div className="overflow-x-auto">
@@ -569,16 +541,12 @@ export function PipelineView() {
           isRunning={isRunning}
           isOnline={isOnline}
           isRecoverySyncActive={isRecoverySyncActive}
-          isMeshUnloadActive={isMeshUnloadActive}
-          ingestEntityCounts={ingestEntityCounts}
-          anomalyIngestTurbines={anomalyIngestTurbines}
-          cloudEntityCount={cloudEntities.length}
-          hasCloudAnomaly={cloudEntities.some((entity) => entity.kind === "anomaly")}
-          meshEntityCount={meshEntities.length}
-          hasMeshAnomaly={meshEntities.some((entity) => entity.kind === "anomaly")}
-          visualEdgeTotalCount={visualEdgeTotalCount}
-          visualEdgeAnomalyCount={visualEdgeAnomalyCount}
-          visualCentralCount={visualCentralCount}
+          isMeshGatewayActive={isMeshGatewayActive}
+          hasRecentAnomaly={hasRecentAnomaly}
+          edgeCapacity={edgeCapacity}
+          edgeCount={edgeStorage.length}
+          edgeAnomalyCount={edgeAnomalyCount}
+          centralCount={centralCount}
           compactionCount={compactionCount}
         />
 
@@ -586,9 +554,7 @@ export function PipelineView() {
           const history = perTurbineHistory[turbineId] ?? [];
           const latest = history[history.length - 1];
           const power = latest?.value ?? 0;
-          const highlighted = ingestEntities.some(
-            (entity) => entity.kind === "anomaly" && entity.turbineId === turbineId,
-          );
+          const highlighted = latest?.type === "anomaly";
 
           return (
             <TurbineStageCard
@@ -596,7 +562,7 @@ export function PipelineView() {
               x={SCENE.turbineX}
               y={SCENE.turbineYs[index]}
               title={`Turbine ${turbineId}`}
-              status={highlighted ? "anomaly in transit" : isRunning ? "telemetry live" : "standby"}
+              status={highlighted ? "anomaly detected" : isRunning ? "telemetry live" : "standby"}
               power={power}
               highlighted={highlighted}
               isRunning={isRunning}

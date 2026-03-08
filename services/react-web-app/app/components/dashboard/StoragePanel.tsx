@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   usePipelineStore,
-  EDGE_CAPACITY,
-  COMPACTION_THRESHOLD,
   selectIsOnline,
 } from "~/stores/pipelineStore";
 import { isCompactedBlock, isDataPoint } from "~/types/edgeguard";
@@ -41,11 +39,13 @@ function StorageCardShell({
 
 export function EdgeStorageCard({ delay }: { delay?: number }) {
   const edgeStorage = usePipelineStore((s) => s.edgeStorage);
-  const compactionCount = usePipelineStore((s) => s.compactionCount);
-  const edgePressure = usePipelineStore((s) => s.edgePressure);
+  const edgeCapacity = usePipelineStore((s) => s.config.edgeCapacity);
+  const compactionThreshold = usePipelineStore((s) => s.config.compactionThreshold);
+  const compactionCount = usePipelineStore((s) => s.metrics.compactionCount);
+  const edgePressure = usePipelineStore((s) => s.metrics.edgePressure);
 
-  const edgeRatio = Math.min(1, edgeStorage.length / EDGE_CAPACITY);
-  const inCompactionZone = edgeStorage.length >= COMPACTION_THRESHOLD;
+  const edgeRatio = Math.min(1, edgeStorage.length / Math.max(edgeCapacity, 1));
+  const inCompactionZone = edgeStorage.length >= compactionThreshold;
 
   const normalCount = edgeStorage.filter((i) => isDataPoint(i) && i.type === "normal").length;
   const anomalyCount = edgeStorage.filter((i) => isDataPoint(i) && i.type === "anomaly").length;
@@ -83,7 +83,7 @@ export function EdgeStorageCard({ delay }: { delay?: number }) {
         <div className="mb-1 flex items-center justify-between text-[11px]">
           <span className="text-[var(--eg-text-dim)]">Capacity</span>
           <span className="font-mono text-[13px] text-[var(--eg-text-bright)]">
-            {edgeStorage.length}/{EDGE_CAPACITY}
+            {edgeStorage.length}/{edgeCapacity}
           </span>
         </div>
         <div className="h-3 rounded-full bg-[var(--eg-border)] overflow-hidden">
@@ -126,10 +126,10 @@ export function EdgeStorageCard({ delay }: { delay?: number }) {
 }
 
 export function CentralStorageCard({ delay }: { delay?: number }) {
-  const centralStorage = usePipelineStore((s) => s.centralStorage);
   const isOnline = usePipelineStore(selectIsOnline);
-  const lastSyncTimestamp = usePipelineStore((s) => s.lastSyncTimestamp);
-  const lastDrainedItemId = usePipelineStore((s) => s.lastDrainedItemId);
+  const centralCapacity = usePipelineStore((s) => s.config.centralCapacity);
+  const lastSyncTimestamp = usePipelineStore((s) => s.metrics.lastSyncTimestamp);
+  const centralLength = usePipelineStore((s) => s.metrics.centralStorageLength);
 
   const lastSyncAgo = lastSyncTimestamp
     ? Math.round((Date.now() - lastSyncTimestamp) / 1000)
@@ -137,11 +137,11 @@ export function CentralStorageCard({ delay }: { delay?: number }) {
 
   const [syncPulse, setSyncPulse] = useState(false);
   useEffect(() => {
-    if (!lastDrainedItemId) return;
+    if (!lastSyncTimestamp) return;
     setSyncPulse(true);
     const t = setTimeout(() => setSyncPulse(false), 300);
     return () => clearTimeout(t);
-  }, [lastDrainedItemId]);
+  }, [lastSyncTimestamp]);
 
   return (
     <StorageCardShell title="CENTRAL CAPACITY" delay={delay}>
@@ -157,7 +157,7 @@ export function CentralStorageCard({ delay }: { delay?: number }) {
       <div className="flex items-center justify-between text-[11px] mb-3">
         <span className="text-[var(--eg-text-dim)]">Synced items</span>
         <span className="font-mono text-[18px] font-bold text-[var(--eg-text-bright)]">
-          {centralStorage.length}
+          {centralLength}/{centralCapacity}
         </span>
       </div>
 

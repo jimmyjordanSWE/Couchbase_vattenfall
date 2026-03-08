@@ -1,26 +1,24 @@
 import type { Route } from "./+types/demo";
-import { useEffect } from "react";
-import { useEventStream } from "~/hooks/useEventStream";
+import { AnimatePresence, motion } from "framer-motion";
+import { Play, RotateCcw, Square, Wifi, WifiOff } from "lucide-react";
 import { PipelineView } from "~/components/pipeline/PipelineView";
 import { TurbineCard } from "~/components/dashboard/TurbineCard";
 import { CentralStorageCard, EdgeStorageCard } from "~/components/dashboard/StoragePanel";
 import { CentralDataTable, EdgeDataTable } from "~/components/dashboard/DataTables";
 import { IntroTour } from "~/components/dashboard/IntroTour";
+import { useEventStream } from "~/hooks/useEventStream";
+import { edgeguardApi } from "~/lib/api";
 import {
-  RECOVERY_SYNC_INTERVAL_MS,
   selectCanClear,
-  selectCanMeshUnload,
+  selectCanToggleMeshGateway,
   selectCanStart,
   selectCanStop,
   selectCanToggleLink,
-  selectIsMeshUnloadActive,
+  selectIsMeshGatewayActive,
   selectIsOnline,
   selectIsRunning,
   usePipelineStore,
 } from "~/stores/pipelineStore";
-import { edgeguardApi } from "~/lib/api";
-import { motion, AnimatePresence } from "framer-motion";
-import { Play, RotateCcw, Square, WifiOff, Wifi } from "lucide-react";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -48,6 +46,7 @@ function VattenfallMark() {
 function BootOverlay() {
   const localInitialize = usePipelineStore((s) => s.initialize);
   const clearPipelineData = usePipelineStore((s) => s.clearPipelineData);
+  const applySnapshot = usePipelineStore((s) => s.applySnapshot);
 
   const handleInitialize = async () => {
     clearPipelineData();
@@ -55,28 +54,15 @@ function BootOverlay() {
     try {
       await edgeguardApi.initialize();
       const status = await edgeguardApi.getStatus();
-
       if (status.isRunning) {
         await edgeguardApi.stop();
       }
-
-      usePipelineStore.setState({
-        isInitialized: true,
-        systemState: "idle",
-        transportState: status.isOnline
-          ? (status.isRecoverySyncActive ? "online_recovery" : "online_steady")
-          : "offline_buffering",
-      });
+      const snapshot = await edgeguardApi.getSnapshot();
+      applySnapshot(snapshot);
       return;
     } catch {
-      // Fallback to local if backend unreachable
+      localInitialize();
     }
-
-    usePipelineStore.setState({
-      systemState: "idle",
-      transportState: "online_steady",
-    });
-    localInitialize();
   };
 
   return (
@@ -87,16 +73,16 @@ function BootOverlay() {
       exit={{ opacity: 0, scale: 1.05 }}
       transition={{ duration: 0.35, ease: "easeInOut" }}
     >
-      {/* Scanlines atmosphere */}
       <div className="absolute inset-0 eg-atmosphere pointer-events-none" />
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.03]"
+        style={{
+          backgroundImage:
+            "linear-gradient(var(--eg-flow) 1px, transparent 1px), linear-gradient(90deg, var(--eg-flow) 1px, transparent 1px)",
+          backgroundSize: "60px 60px",
+        }}
+      />
 
-      {/* Grid background */}
-      <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
-        backgroundImage: "linear-gradient(var(--eg-flow) 1px, transparent 1px), linear-gradient(90deg, var(--eg-flow) 1px, transparent 1px)",
-        backgroundSize: "60px 60px",
-      }} />
-
-      {/* Central content */}
       <div className="relative z-10 flex flex-col items-center gap-1 pointer-events-auto">
         <motion.div
           className="mt-[30px] flex flex-col items-center gap-0"
@@ -114,31 +100,29 @@ function BootOverlay() {
           </div>
         </motion.div>
 
-        {/* Status indicators */}
         <motion.div
           className="mt-2 flex items-center gap-6 rounded-full border border-[var(--eg-border)] bg-white px-5 py-2 text-[9px] font-display tracking-[0.16em] shadow-[0_8px_24px_rgba(30,50,79,0.06)]"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.28, duration: 0.22 }}
         >
-          {["TURBINES", "EDGE AI", "COUCHBASE", "SYNC LINK"].map((sys, i) => (
+          {["TURBINES", "EDGE AI", "COUCHBASE", "SYNC LINK"].map((sys, index) => (
             <motion.div
               key={sys}
               className="flex items-center gap-1.5"
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.28 + i * 0.05, duration: 0.18 }}
+              transition={{ delay: 0.28 + index * 0.05, duration: 0.18 }}
             >
-              <div className="w-1.5 h-1.5 rounded-full bg-[var(--eg-alert)] animate-pulse" />
+              <div className="h-1.5 w-1.5 rounded-full bg-[var(--eg-alert)] animate-pulse" />
               <span className="text-[var(--eg-text-dim)]">{sys}</span>
             </motion.div>
           ))}
         </motion.div>
 
-        {/* Initialize button */}
         <motion.button
           onClick={handleInitialize}
-          className="relative mt-2 px-10 py-4 rounded-full font-display text-sm tracking-[0.08em] font-semibold text-white bg-[var(--eg-flow)] overflow-hidden group shadow-[0_16px_32px_rgba(32,113,181,0.18)]"
+          className="relative mt-2 overflow-hidden rounded-full bg-[var(--eg-flow)] px-10 py-4 font-display text-sm font-semibold tracking-[0.08em] text-white shadow-[0_16px_32px_rgba(32,113,181,0.18)]"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4, type: "spring", stiffness: 220, damping: 20 }}
@@ -152,7 +136,6 @@ function BootOverlay() {
           />
           <span className="relative z-10">INITIALIZE SYSTEM</span>
         </motion.button>
-
       </div>
     </motion.div>
   );
@@ -162,59 +145,58 @@ export default function Demo() {
   const isRunning = usePipelineStore(selectIsRunning);
   const isInitialized = usePipelineStore((s) => s.isInitialized);
   const isOnline = usePipelineStore(selectIsOnline);
-  const totalPackets = usePipelineStore((s) => s.totalPacketsEmitted);
-  const totalAnomalies = usePipelineStore((s) => s.totalAnomalies);
-  const clearPipelineData = usePipelineStore((s) => s.clearPipelineData);
-  const isMeshUnloadActive = usePipelineStore(selectIsMeshUnloadActive);
+  const metrics = usePipelineStore((s) => s.metrics);
+  const edgeStorageLength = usePipelineStore((s) => s.edgeStorage.length);
+  const edgeCapacity = usePipelineStore((s) => s.config.edgeCapacity);
+  const isMeshGatewayActive = usePipelineStore(selectIsMeshGatewayActive);
   const canStart = usePipelineStore(selectCanStart);
   const canStop = usePipelineStore(selectCanStop);
   const canClear = usePipelineStore(selectCanClear);
   const canToggleLink = usePipelineStore(selectCanToggleLink);
-  const canMeshUnload = usePipelineStore(selectCanMeshUnload);
-  const edgeStorageLength = usePipelineStore((s) => s.edgeStorage.length);
-  const toggleMeshUnload = usePipelineStore((s) => s.toggleMeshUnload);
+  const canToggleMeshGateway = usePipelineStore(selectCanToggleMeshGateway);
+  const clearPipelineData = usePipelineStore((s) => s.clearPipelineData);
   const beginClearing = usePipelineStore((s) => s.beginClearing);
   const finishClearing = usePipelineStore((s) => s.finishClearing);
 
   useEventStream(isInitialized);
 
-  useEffect(() => {
-    if (!isMeshUnloadActive) return;
-
-    const id = window.setInterval(() => {
-      usePipelineStore.getState().drainMeshStep();
-    }, RECOVERY_SYNC_INTERVAL_MS);
-
-    return () => window.clearInterval(id);
-  }, [isMeshUnloadActive]);
-
   const showBoot = !isInitialized;
   const showTour = false;
 
-  const startSystem = () => { edgeguardApi.start().catch(() => {}); };
-  const stopSystem = () => { edgeguardApi.stop().catch(() => {}); };
-  const toggleConnection = () => { edgeguardApi.setConnection(!isOnline).catch(() => {}); };
+  const startSystem = () => {
+    edgeguardApi.start().catch(() => {});
+  };
+  const stopSystem = () => {
+    edgeguardApi.stop().catch(() => {});
+  };
+  const toggleConnection = () => {
+    edgeguardApi.setConnection(!isOnline).catch(() => {});
+  };
+  const toggleMeshGateway = () => {
+    edgeguardApi.setMeshGateway(!isMeshGatewayActive).catch(() => {});
+  };
   const clearDatabase = async () => {
     beginClearing();
     try {
       await edgeguardApi.clearDatabase();
       clearPipelineData();
     } catch {
-      // no-op in UI for now
+      // no-op for now
     } finally {
       finishClearing();
     }
   };
 
   return (
-    <div className="edgeguard-demo min-h-screen demo-bg eg-atmosphere text-[var(--eg-text)]" style={{ backgroundColor: "var(--eg-bg)" }}>
+    <div
+      className="edgeguard-demo min-h-screen demo-bg eg-atmosphere text-[var(--eg-text)]"
+      style={{ backgroundColor: "var(--eg-bg)" }}
+    >
       <AnimatePresence>
         {showBoot && <BootOverlay />}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {showTour && <IntroTour />}
-      </AnimatePresence>
+      <AnimatePresence>{showTour && <IntroTour />}</AnimatePresence>
 
       <div className="relative z-10 flex min-h-screen flex-col">
         <main className="mx-auto flex w-full max-w-[1560px] flex-1 flex-col gap-6 px-6 py-8">
@@ -225,16 +207,31 @@ export default function Demo() {
 
             <div className="grid min-w-[320px] grid-cols-3 gap-3">
               <div className="eg-panel px-5 py-4">
-                <div className="text-[12px] font-display font-bold tracking-[0.04em] text-[var(--eg-text-dim)]">System</div>
-                <div className="mt-2 text-[22px] font-bold text-[var(--eg-text)]">{isRunning ? "Running" : "Standby"}</div>
+                <div className="text-[12px] font-display font-bold tracking-[0.04em] text-[var(--eg-text-dim)]">
+                  System
+                </div>
+                <div className="mt-2 flex items-center gap-3 text-[22px] font-bold text-[var(--eg-text)]">
+                  <span>{isRunning ? "Running" : "Standby"}</span>
+                  {isRunning ? (
+                    <span className="inline-block h-5 w-5 rounded-full border-2 border-[var(--eg-flow)] border-t-transparent animate-spin" />
+                  ) : null}
+                </div>
               </div>
               <div className="eg-panel px-5 py-4">
-                <div className="text-[12px] font-display font-bold tracking-[0.04em] text-[var(--eg-text-dim)]">Connection</div>
-                <div className="mt-2 text-[22px] font-bold text-[var(--eg-text)]">{isOnline ? "Online" : "Offline"}</div>
+                <div className="text-[12px] font-display font-bold tracking-[0.04em] text-[var(--eg-text-dim)]">
+                  Connection
+                </div>
+                <div className="mt-2 text-[22px] font-bold text-[var(--eg-text)]">
+                  {isOnline ? "Online" : "Offline"}
+                </div>
               </div>
               <div className="eg-panel px-5 py-4">
-                <div className="text-[12px] font-display font-bold tracking-[0.04em] text-[var(--eg-text-dim)]">Anomalies</div>
-                <div className="mt-2 text-[22px] font-bold text-[var(--eg-text)]">{totalAnomalies}/{totalPackets || 0}</div>
+                <div className="text-[12px] font-display font-bold tracking-[0.04em] text-[var(--eg-text-dim)]">
+                  Anomalies
+                </div>
+                <div className="mt-2 text-[22px] font-bold text-[var(--eg-text)]">
+                  {metrics.totalAnomalies}/{metrics.totalPacketsEmitted || 0}
+                </div>
               </div>
             </div>
           </section>
@@ -259,17 +256,7 @@ export default function Demo() {
                 Start System
               </button>
             )}
-            <button
-              onClick={toggleMeshUnload}
-              disabled={!canMeshUnload}
-              className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] ${
-                isMeshUnloadActive
-                  ? "border border-[var(--eg-alert)] bg-[var(--eg-alert)] text-[var(--eg-text)]"
-                  : "border border-[var(--eg-border)] bg-white text-[var(--eg-flow)]"
-              } disabled:cursor-not-allowed disabled:opacity-45`}
-            >
-              {isMeshUnloadActive ? "Mesh Unload Active" : "Activate Mesh Unload"}
-            </button>
+
             <button
               onClick={toggleConnection}
               disabled={!canToggleLink}
@@ -282,6 +269,19 @@ export default function Demo() {
               {isOnline ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4" />}
               {isOnline ? "Kill Connection" : "Restore Link"}
             </button>
+
+            <button
+              onClick={toggleMeshGateway}
+              disabled={!canToggleMeshGateway}
+              className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] ${
+                isMeshGatewayActive
+                  ? "border border-[var(--eg-ok)] bg-[var(--eg-ok)] text-white"
+                  : "border border-[var(--eg-border)] bg-white text-[var(--eg-flow)]"
+              } disabled:cursor-not-allowed disabled:opacity-45`}
+            >
+              {isMeshGatewayActive ? "Close Mesh Gateway" : "Open Mesh Gateway"}
+            </button>
+
             <button
               onClick={clearDatabase}
               disabled={!canClear}
@@ -290,15 +290,16 @@ export default function Demo() {
               <RotateCcw className="h-4 w-4" />
               Clear Database
             </button>
+
             <div className="ml-auto flex flex-wrap gap-3">
               <div className="rounded-2xl border border-[var(--eg-border)] bg-white px-4 py-2 text-[13px] text-[var(--eg-text)]">
                 {isRunning ? "Live simulation" : "System idle"}
               </div>
               <div className="rounded-2xl border border-[var(--eg-border)] bg-white px-4 py-2 text-[13px] text-[var(--eg-text)]">
-                Edge capacity 100
+                Edge capacity {edgeCapacity}
               </div>
               <div className="rounded-2xl border border-[var(--eg-border)] bg-white px-4 py-2 text-[13px] text-[var(--eg-text)]">
-                Mesh queue {edgeStorageLength}
+                Edge buffer {edgeStorageLength}
               </div>
             </div>
           </section>
@@ -318,7 +319,7 @@ export default function Demo() {
                   </div>
                 </div>
                 <div className="rounded-full bg-[var(--eg-alert)]/18 px-4 py-2 text-[12px] font-display font-semibold tracking-[0.06em] text-[var(--eg-text)]">
-                  {isOnline ? "SYNC ACTIVE" : "EDGE BUFFERING"}
+                  {isOnline ? "SYNC ACTIVE" : isMeshGatewayActive ? "MESH DRAIN ACTIVE" : "EDGE BUFFERING"}
                 </div>
               </div>
               <PipelineView />
@@ -335,7 +336,6 @@ export default function Demo() {
               </div>
             </div>
           </section>
-
         </main>
       </div>
     </div>

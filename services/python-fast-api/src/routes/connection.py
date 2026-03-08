@@ -14,3 +14,13 @@ class ConnectionBody(BaseModel):
 async def toggle_connection(body: ConnectionBody):
     engine.set_online(body.online)
     return {"ok": True}
+
+
+class MeshGatewayBody(BaseModel):
+    active: bool
+
+
+@connection_router.post("/mesh-gateway")
+async def toggle_mesh_gateway(body: MeshGatewayBody):
+    engine.set_mesh_gateway_active(body.active)
+    return {"ok": True}

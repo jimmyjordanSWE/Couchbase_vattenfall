@@ -1,7 +1,7 @@
 import Marquee from "react-fast-marquee";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePipelineStore } from "~/stores/pipelineStore";
-import type { CompactionLogEntry } from "~/stores/pipelineStore";
+import type { CompactionLogEntry } from "~/lib/api";
 
 const SEVERITY_CONFIG: Record<CompactionLogEntry["severity"], { icon: string; color: string }> = {
   compaction: { icon: "⚡", color: "var(--eg-alert)" },

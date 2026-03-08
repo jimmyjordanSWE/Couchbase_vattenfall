@@ -16,6 +16,11 @@ async def get_status():
     return engine.get_status_dict()
 
 
+@system_router.get("/snapshot")
+async def get_snapshot():
+    return engine.get_snapshot_dict()
+
+
 @system_router.post("/initialize")
 async def initialize():
     engine.initialize()

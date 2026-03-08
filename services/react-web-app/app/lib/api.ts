@@ -7,6 +7,7 @@ import type {
 
 export interface SystemConfig {
   edgeCapacity: number;
+  centralCapacity: number;
   compactionThreshold: number;
   turbineCount: number;
   emitIntervalMs: number;
@@ -18,6 +19,7 @@ export interface SystemStatus {
   isInitialized: boolean;
   isOnline: boolean;
   isRecoverySyncActive: boolean;
+  isMeshGatewayActive: boolean;
   sequenceNumber: number;
 }
 
@@ -43,23 +45,14 @@ export interface CompactionLogEntry {
   severity: "compaction" | "sync" | "warning" | "info";
 }
 
-// ---------- SSE event payloads ----------
-
-export interface EdgeUpdatePayload {
-  item: EdgeGuardItem;
-  storageLength: number;
-  pressure: number;
-}
-
-export interface CentralUpdatePayload {
-  item: EdgeGuardItem;
-  lastSyncTimestamp: number;
-}
-
-export interface CompactionPayload {
-  log: CompactionLogEntry;
+export interface PipelineSnapshot {
+  config: SystemConfig;
+  status: SystemStatus;
+  metrics: Metrics;
   edgeStorage: EdgeGuardItem[];
-  compactionCount: number;
+  centralStorage: EdgeGuardItem[];
+  perTurbineHistory: Record<number, DataPoint[]>;
+  compactionLogs: CompactionLogEntry[];
 }
 
 // ---------- Base URL ----------
@@ -103,12 +96,15 @@ async function request<T>(method: string, path: string, data?: unknown): Promise
 export const edgeguardApi = {
   getConfig: () => request<SystemConfig>("GET", "/api/system/config"),
   getStatus: () => request<SystemStatus>("GET", "/api/system/status"),
+  getSnapshot: () => request<PipelineSnapshot>("GET", "/api/system/snapshot"),
   initialize: () => request<{ ok: boolean }>("POST", "/api/system/initialize"),
   start: () => request<{ ok: boolean }>("POST", "/api/system/start"),
   stop: () => request<{ ok: boolean }>("POST", "/api/system/stop"),
   clearDatabase: () => request<ClearDatabaseResult>("POST", "/api/system/clear-database"),
   setConnection: (online: boolean) =>
     request<{ ok: boolean }>("POST", "/api/connection", { online }),
+  setMeshGateway: (active: boolean) =>
+    request<{ ok: boolean }>("POST", "/api/mesh-gateway", { active }),
   injectAnomaly: (turbineId: number) =>
     request<{ ok: boolean }>("POST", `/api/turbines/${turbineId}/anomaly`),
   clearAnomaly: (turbineId: number) =>

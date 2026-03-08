@@ -15,6 +15,7 @@ async def event_stream(request: Request):
 
     async def generate():
         try:
+            yield f"event: snapshot\ndata: {json.dumps(engine.get_snapshot_dict())}\n\n"
             while True:
                 if await request.is_disconnected():
                     break
