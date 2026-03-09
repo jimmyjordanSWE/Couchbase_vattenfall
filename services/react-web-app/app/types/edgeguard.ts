@@ -56,12 +56,13 @@ export interface CompactedBlock {
 export type EdgeGuardItem = DataPoint | CompactedBlock;
 
 /** Packet in transit along the pipeline. */
-export type PipelineSegment = "to-buffer" | "to-central";
+export type PipelineSegment = "to-buffer" | "to-central" | "mesh-to-cloud";
 
 export interface Packet {
   id: string;
-  progress: number;
   segment: PipelineSegment;
+  createdAt: number;
+  durationMs: number;
   /** For to-buffer: the DataPoint being sent. For to-central: the item draining. */
   payload: DataPoint | EdgeGuardItem;
 }

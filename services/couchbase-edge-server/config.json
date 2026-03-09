@@ -12,7 +12,7 @@
   },
   "replications": [
     {
-      "source": "ws://sync-gateway:4984/main",
+      "source": "${SYNC_GATEWAY_URL}",
       "target": "main",
       "bidirectional": true,
       "continuous": true,

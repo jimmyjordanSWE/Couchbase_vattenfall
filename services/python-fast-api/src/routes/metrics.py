@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from simulation import engine
+from pipeline.runtime import engine
 
 metrics_router = APIRouter(prefix="/api", tags=["metrics"])
 

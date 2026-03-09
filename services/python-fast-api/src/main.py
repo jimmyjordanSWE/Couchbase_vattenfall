@@ -14,7 +14,8 @@ from routes.storage import storage_router
 from routes.metrics import metrics_router
 from routes.stream import stream_router
 from routes.model import model_router
-from simulation import engine
+from pipeline.runtime import engine
+from persistence import state_store
 import conf
 from init import init, deinit
 
@@ -39,14 +40,15 @@ async def _init_couchbase_and_model(app: FastAPI) -> None:
     # Connect to Couchbase (blocking — run in thread)
     logger.info("Connecting to Couchbase...")
     try:
-        await loop.run_in_executor(None, db.init_db)
+        await loop.run_in_executor(None, state_store.init)
         logger.info("Couchbase connected. Keyspaces initialised.")
         app.state.db_ready = True
-        state = await db.load_pipeline_state()
+        state = await state_store.load_pipeline_state()
         if state is not None and "sequence_number" in state:
             n = state["sequence_number"]
             engine.sequence_number = n
             logger.info("Restored pipeline sequence_number from Couchbase: %s", n)
+        await engine.hydrate_from_persistence()
     except Exception as exc:
         logger.warning(f"Couchbase connection failed (running without persistence): {exc}")
         app.state.db_ready = False
@@ -63,7 +65,7 @@ async def _init_couchbase_and_model(app: FastAPI) -> None:
         )
 
     # Persist model metadata to Couchbase
-    asyncio.create_task(db.save_model_state(detector.get_status_dict()))
+    asyncio.create_task(state_store.save_model_state(detector.get_status_dict()))
 
     app.state.detector = detector
     logger.info("Anomaly detector ready.")
@@ -132,6 +134,7 @@ def main() -> None:
         reload=http_conf.autoreload,
         log_level="info",
         log_config=None,
+        timeout_graceful_shutdown=1,
     )
 
 

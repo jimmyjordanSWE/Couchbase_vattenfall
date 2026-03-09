@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import math
-import os
 import time
 from typing import Any
 
 import db
+from persistence import edge_store, central_store, state_store
 from anomaly_detector import (
     detector,
     generate_normal_point,
@@ -29,17 +29,18 @@ from models.edgeguard import (
     SystemConfig,
     SystemStatus,
 )
-
-EDGE_CAPACITY = 25
-COMPACTION_THRESHOLD = 20
-CENTRAL_STORAGE_LIMIT = 30  # max items returned by GET /api/storage/central and snapshot
-TURBINE_COUNT = 3
-EMIT_INTERVAL_MS = 1400
-DRAIN_INTERVAL_MS = 600   # run more often so UI sees smaller, more frequent updates
-DRAIN_BATCH_SIZE = 5     # max items per drain run — smaller batches are easier to follow
-TURBINE_HISTORY_SIZE = 30
-TIER1_WINDOW_SIZE = 5
-TIER2_MERGE_COUNT = 4
+from pipeline.constants import (
+    EDGE_CAPACITY,
+    COMPACTION_THRESHOLD,
+    CENTRAL_STORAGE_LIMIT,
+    TURBINE_COUNT,
+    EMIT_INTERVAL_MS,
+    DRAIN_INTERVAL_MS,
+    DRAIN_BATCH_SIZE,
+    TURBINE_HISTORY_SIZE,
+    TIER1_WINDOW_SIZE,
+    TIER2_MERGE_COUNT,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +190,16 @@ class SimulationEngine:
         for q in dead:
             self._subscribers.discard(q)
 
+    def get_snapshot_dict(self) -> dict[str, Any]:
+        return {
+            "edgeStorage": list(self.edge_storage),
+            "centralStorage": list(self.central_storage[-CENTRAL_STORAGE_LIMIT:]),
+            "metrics": self.get_metrics_dict(),
+            "systemStatus": self.get_status_dict(),
+            "compactionLogs": list(self.compaction_logs),
+            "compactionCount": self.compaction_count,
+        }
+
     # ------------------------------------------------------------------
     # Data generation
     # ------------------------------------------------------------------
@@ -197,13 +208,7 @@ class SimulationEngine:
         self.sequence_number += 1
         return self.sequence_number
 
-    def _generate_point(self) -> DataPoint | None:
-        enabled_list = sorted(self.enabled_turbines)
-        if not enabled_list:
-            return None
-        source_turbine = enabled_list[self._enabled_index % len(enabled_list)]
-        self._enabled_index += 1
-
+    def _build_point_for_turbine(self, source_turbine: int) -> DataPoint:
         seq = self._next_seq()
         force_anomaly = (
             source_turbine == self.forced_anomaly_turbine
@@ -232,14 +237,86 @@ class SimulationEngine:
             timestamp=_now_ms(),
         )
 
+    def _generate_point(self) -> DataPoint | None:
+        enabled_list = sorted(self.enabled_turbines)
+        if not enabled_list:
+            return None
+        source_turbine = enabled_list[self._enabled_index % len(enabled_list)]
+        self._enabled_index += 1
+        return self._build_point_for_turbine(source_turbine)
+
+    def _record_turbine_history(self, point_dict: dict[str, Any]) -> None:
+        turbine_id = int(point_dict["sourceTurbine"])
+        hist = self.per_turbine_history.get(turbine_id, [])
+        hist.append(point_dict)
+        if len(hist) > TURBINE_HISTORY_SIZE:
+            hist = hist[-TURBINE_HISTORY_SIZE:]
+        self.per_turbine_history[turbine_id] = hist
+
+    async def _make_room_for_edge_item(self) -> None:
+        if len(self.edge_storage) < EDGE_CAPACITY:
+            return
+
+        max_compact_rounds = 20
+        for _ in range(max_compact_rounds):
+            if len(self.edge_storage) < EDGE_CAPACITY:
+                break
+            prev_len = len(self.edge_storage)
+            await self._compact(force=True)
+            if len(self.edge_storage) >= prev_len:
+                break
+
+        while len(self.edge_storage) >= EDGE_CAPACITY:
+            evicted = self._drop_oldest_normal_once()
+            if evicted is None:
+                break
+            doc_id = evicted.get("id")
+            if doc_id:
+                asyncio.create_task(db.edge_delete_async(doc_id, "central.data"))
+
+    def _append_point_to_edge(self, point_dict: dict[str, Any]) -> None:
+        self.edge_storage.append(point_dict)
+        self.edge_pressure = _compute_pressure(len(self.edge_storage))
+
+    def _publish_edge_update(self, point_dict: dict[str, Any]) -> None:
+        self._publish("edge_update", {
+            "item": point_dict,
+            "edgeStorage": list(self.edge_storage),
+            "storageLength": len(self.edge_storage),
+            "pressure": self.edge_pressure,
+        })
+
+    def _queue_edge_persist(self, point_dict: dict[str, Any], point_id: str) -> None:
+        asyncio.create_task(self._persist_edge_reading(point_dict, point_id))
+
+    async def _ingest_generated_point(self, point: DataPoint) -> None:
+        point_dict = point.model_dump(by_alias=True)
+        self._record_turbine_history(point_dict)
+
+        self.total_packets_emitted += 1
+        if point.type == "anomaly":
+            self.total_anomalies += 1
+
+        self._publish("telemetry", point_dict)
+
+        await self._make_room_for_edge_item()
+        self._append_point_to_edge(point_dict)
+        self._publish_edge_update(point_dict)
+        self._publish_metrics()
+
+        if self.sequence_number % 20 == 0:
+            asyncio.create_task(state_store.save_pipeline_state({"sequence_number": self.sequence_number}))
+
+        self._queue_edge_persist(point_dict, point.id)
+
     # ------------------------------------------------------------------
     # Compaction
     # ------------------------------------------------------------------
 
-    async def _compact(self) -> None:
+    async def _compact(self, *, force: bool = False) -> None:
         """Consecutive-run compaction: replace each run of 2+ normals with one block. Anomalies and compacted break runs.
         Originals are deleted from Edge Server before the compacted block is written, so replication never sees both."""
-        if self.is_online or len(self.edge_storage) <= COMPACTION_THRESHOLD:
+        if (self.is_online and not force) or len(self.edge_storage) <= COMPACTION_THRESHOLD:
             return
 
         if self.is_compacting or self.is_clearing:
@@ -335,6 +412,7 @@ class SimulationEngine:
             "log": log_entry.model_dump(by_alias=True),
             "edgeStorage": self.edge_storage,
             "compactionCount": self.compaction_count,
+            "pressure": self.edge_pressure,
         })
         self._publish_metrics()
 
@@ -344,10 +422,6 @@ class SimulationEngine:
 
     async def _persist_edge_reading(self, point_dict: dict, key: str) -> None:
         """Write reading to Edge Server (central.data); doc has type field."""
-        await db.edge_put_async(point_dict, key, keyspace="central.data")
-
-    async def _persist_edge_anomaly(self, point_dict: dict, key: str) -> None:
-        """Write anomaly to Edge Server (central.data); doc has type field."""
         await db.edge_put_async(point_dict, key, keyspace="central.data")
 
     async def _persist_compacted(self, block_dict: dict) -> None:
@@ -361,75 +435,22 @@ class SimulationEngine:
 
     async def _emit_loop(self) -> None:
         interval = EMIT_INTERVAL_MS / 1000.0
+        first_cycle = True
         while True:
-            await asyncio.sleep(interval)
+            if first_cycle:
+                first_cycle = False
+            else:
+                await asyncio.sleep(interval)
             if not self.is_running or self.is_clearing:
                 continue
 
             point = self._generate_point()
             if point is None:
                 continue
-            point_dict = point.model_dump(by_alias=True)
+            await self._ingest_generated_point(point)
 
-            # Per-turbine history (in-memory for fast SSE)
-            hist = self.per_turbine_history.get(point.source_turbine, [])
-            hist.append(point_dict)
-            if len(hist) > TURBINE_HISTORY_SIZE:
-                hist = hist[-TURBINE_HISTORY_SIZE:]
-            self.per_turbine_history[point.source_turbine] = hist
-
-            self.total_packets_emitted += 1
-            if point.type == "anomaly":
-                self.total_anomalies += 1
-
-            self._publish("telemetry", point_dict)
-
-            # Make room when at cap: compact then evict until under EDGE_CAPACITY. If online, temporarily turn sync off.
-            if len(self.edge_storage) >= EDGE_CAPACITY:
-                was_online = self.is_online
-                if was_online:
-                    self.set_online(False)
-                max_compact_rounds = 20
-                for _ in range(max_compact_rounds):
-                    if len(self.edge_storage) < EDGE_CAPACITY:
-                        break
-                    prev_len = len(self.edge_storage)
-                    await self._compact()
-                    if len(self.edge_storage) >= prev_len:
-                        break
-                while len(self.edge_storage) >= EDGE_CAPACITY:
-                    evicted = self._drop_oldest_normal_once()
-                    if evicted is None:
-                        break
-                    doc_id = evicted.get("id")
-                    if doc_id:
-                        asyncio.create_task(db.edge_delete_async(doc_id, "central.data"))
-                if was_online:
-                    self.set_online(True)
-
-            self.edge_storage.append(point_dict)
-            self.edge_pressure = _compute_pressure(len(self.edge_storage))
-
-            self._publish("edge_update", {
-                "item":          point_dict,
-                "storageLength": len(self.edge_storage),
-                "pressure":      self.edge_pressure,
-            })
-            self._publish_metrics()
-
-            if self.sequence_number % 20 == 0:
-                asyncio.create_task(db.save_pipeline_state({"sequence_number": self.sequence_number}))
-
-            # Persist to Edge Server via REST API (non-blocking)
-            asyncio.create_task(self._persist_edge_reading(point_dict, point.id))
-            if point.type == "anomaly":
-                asyncio.create_task(self._persist_edge_anomaly(point_dict, point.id))
-
-            # Compaction when over threshold; if online, temporarily turn sync off so we don't race with drain.
-            if len(self.edge_storage) > COMPACTION_THRESHOLD:
-                was_online = self.is_online
-                if was_online:
-                    self.set_online(False)
+            # Compaction over threshold while offline, or forced when hard-capped.
+            if not self.is_online and len(self.edge_storage) > COMPACTION_THRESHOLD:
                 max_compact_rounds = 20
                 for _ in range(max_compact_rounds):
                     if len(self.edge_storage) <= COMPACTION_THRESHOLD:
@@ -438,8 +459,6 @@ class SimulationEngine:
                     await self._compact()
                     if len(self.edge_storage) >= prev_len:
                         break
-                if was_online:
-                    self.set_online(True)
 
     # ------------------------------------------------------------------
     # Drain loop — edge → Sync Gateway → central
@@ -456,26 +475,20 @@ class SimulationEngine:
 
             # If we just came online and we are over threshold, force a compaction.
             if len(self.edge_storage) > COMPACTION_THRESHOLD:
-                # Temporarily turn offline to allow _compact to run
-                self.set_online(False)
-                # Need to use the _compact directly since it requires self.is_online to be False
-                try:
-                    max_compact_rounds = 20
-                    for _ in range(max_compact_rounds):
-                        if len(self.edge_storage) <= COMPACTION_THRESHOLD:
-                            break
-                        prev_len = len(self.edge_storage)
-                        await self._compact()
-                        if len(self.edge_storage) >= prev_len:
-                            break
-                finally:
-                    self.set_online(True)
+                max_compact_rounds = 20
+                for _ in range(max_compact_rounds):
+                    if len(self.edge_storage) <= COMPACTION_THRESHOLD:
+                        break
+                    prev_len = len(self.edge_storage)
+                    await self._compact(force=True)
+                    if len(self.edge_storage) >= prev_len:
+                        break
                 continue  # Let the next cycle handle the drain if ready
 
             drained = 0
             while drained < DRAIN_BATCH_SIZE and self.edge_storage:
                 item = self.edge_storage.pop(0)
-                ok = await db.upsert_drained_to_central_async(item)
+                ok = await central_store.upsert_item(item)
                 if not ok:
                     self.edge_storage.insert(0, item)
                     break
@@ -487,8 +500,12 @@ class SimulationEngine:
                 self.last_sync_timestamp = _now_ms()
 
                 self._publish("central_update", {
-                    "item":              item,
+                    "item": item,
+                    "removedEdgeId": doc_id,
+                    "edgeStorage": list(self.edge_storage),
+                    "centralStorage": list(self.central_storage[-CENTRAL_STORAGE_LIMIT:]),
                     "lastSyncTimestamp": self.last_sync_timestamp,
+                    "pressure": self.edge_pressure,
                 })
                 drained += 1
 
@@ -557,13 +574,13 @@ class SimulationEngine:
         if self._drain_task:
             self._drain_task.cancel()
             self._drain_task = None
-        await db.save_pipeline_state({"sequence_number": self.sequence_number})
+        await state_store.save_pipeline_state({"sequence_number": self.sequence_number})
         self._publish("system_status", self.get_status_dict())
 
     async def reload_edge_storage_from_server(self) -> None:
         """Reload edge_storage from Edge Server so drain loop can sync pending data (e.g. after reconnect or restart)."""
         try:
-            docs = await db.edge_list_docs_async(limit=200)
+            docs = await edge_store.list_docs(limit=200)
             self.edge_storage = list(docs)
             self.edge_pressure = _compute_pressure(len(self.edge_storage))
             # Trim to cap if over EDGE_CAPACITY (we're still offline when this runs, before set_online(True))
@@ -583,6 +600,7 @@ class SimulationEngine:
                     doc_id = evicted.get("id")
                     if doc_id:
                         await db.edge_delete_async(doc_id, "central.data")
+            self.central_storage = await central_store.list_items(limit=CENTRAL_STORAGE_LIMIT)
             self._publish("compaction", {
                 "log": CompactionLogEntry(
                     message="EDGE BUFFER RELOADED FROM SERVER",
@@ -596,7 +614,18 @@ class SimulationEngine:
         except Exception:
             pass
 
+    async def hydrate_from_persistence(self) -> None:
+        """Rebuild in-memory edge and central state from persisted stores after startup."""
+        try:
+            self.edge_storage = await edge_store.list_docs(limit=200)
+            self.central_storage = await central_store.list_items(limit=CENTRAL_STORAGE_LIMIT)
+            self.edge_pressure = _compute_pressure(len(self.edge_storage))
+        except Exception:
+            pass
+
     def set_online(self, online: bool) -> None:
+        if self.is_online == online:
+            return
         was_offline = not self.is_online
         self.is_online = online
 
@@ -619,9 +648,18 @@ class SimulationEngine:
 
         self._publish("system_status", self.get_status_dict())
 
-    def inject_anomaly(self, turbine_id: int) -> None:
+    async def inject_anomaly(self, turbine_id: int) -> None:
         self.forced_anomaly_turbine = turbine_id
         self.anomaly_burst_left = 8  # slightly longer burst so IF has more data
+
+        if (
+            self.is_running
+            and not self.is_clearing
+            and turbine_id in self.enabled_turbines
+        ):
+            point = self._build_point_for_turbine(turbine_id)
+            if point.type == "anomaly":
+                await self._ingest_generated_point(point)
 
     def clear_anomaly(self, turbine_id: int) -> None:
         if self.forced_anomaly_turbine == turbine_id:
@@ -643,7 +681,7 @@ class SimulationEngine:
         """Delete all docs from Edge Server first (so replication does not sync them to central), then clear in-memory and notify clients."""
         self.is_clearing = True
         try:
-            await db.edge_clear_all_async()
+            await edge_store.clear_all()
             self.edge_storage.clear()
             self.edge_pressure = _compute_pressure(0)
             log_entry = CompactionLogEntry(
@@ -665,7 +703,7 @@ class SimulationEngine:
         """Delete all docs from Couchbase Server central first, then clear in-memory buffer (readings, anomalies, compacted)."""
         self.is_clearing = True
         try:
-            await db.central_clear_all_async()
+            await central_store.clear_all()
             self.central_storage.clear()
         finally:
             self.is_clearing = False
@@ -677,15 +715,15 @@ class SimulationEngine:
         
         self.is_clearing = True
         try:
-            await db.edge_clear_all_async()
+            await edge_store.clear_all()
             self.edge_storage.clear()
             self.edge_pressure = _compute_pressure(0)
             
-            await db.central_clear_all_async()
+            await central_store.clear_all()
             self.central_storage.clear()
             
             self.sequence_number = 1000
-            await db.save_pipeline_state({"sequence_number": self.sequence_number})
+            await state_store.save_pipeline_state({"sequence_number": self.sequence_number})
             
             self.per_turbine_history = {
                 i: [] for i in range(1, TURBINE_COUNT + 1)

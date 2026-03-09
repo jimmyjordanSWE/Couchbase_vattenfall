@@ -4,8 +4,9 @@ import json
 from fastapi import APIRouter, Request
 from starlette.responses import StreamingResponse
 
-import db
-from simulation import engine, EDGE_CAPACITY, CENTRAL_STORAGE_LIMIT
+from persistence import edge_store, central_store
+from pipeline.runtime import engine, EDGE_CAPACITY, CENTRAL_STORAGE_LIMIT
+from simulation import _compute_pressure
 
 stream_router = APIRouter(prefix="/api", tags=["stream"])
 
@@ -18,7 +19,7 @@ async def _snapshot_data(request: Request) -> dict:
 
     # Edge list: from Edge Server (persisted) when available; cap at EDGE_CAPACITY so UI matches buffer size
     try:
-        edge_list = await db.edge_list_docs_async(limit=150)
+        edge_list = await edge_store.list_docs(limit=150)
         edge_list = edge_list[-EDGE_CAPACITY:]  # most recent only
     except Exception:
         edge_list = list(engine.edge_storage)
@@ -26,23 +27,16 @@ async def _snapshot_data(request: Request) -> dict:
     # Central list: from Couchbase Server when db_ready; otherwise in-memory engine fallback (never edge data; never use edge_list here)
     try:
         if db_ready:
-            central_list = await db.central_list_storage_async(limit=CENTRAL_STORAGE_LIMIT)
+            central_list = await central_store.list_items(limit=CENTRAL_STORAGE_LIMIT)
         else:
             central_list = list(engine.central_storage)
     except Exception:
         central_list = list(engine.central_storage)
 
-    # Return independent copies so edge and central are never the same reference or content mix-up
-    edge_payload = list(edge_list)
-    central_payload = list(central_list)
-    return {
-        "edgeStorage": edge_payload,
-        "centralStorage": central_payload,
-        "metrics": engine.get_metrics_dict(),
-        "systemStatus": engine.get_status_dict(),
-        "compactionLogs": engine.compaction_logs,
-        "compactionCount": engine.compaction_count,
-    }
+    engine.edge_storage = list(edge_list)
+    engine.central_storage = list(central_list)
+    engine.edge_pressure = _compute_pressure(len(engine.edge_storage))
+    return engine.get_snapshot_dict()
 
 
 @stream_router.get("/stream/events")

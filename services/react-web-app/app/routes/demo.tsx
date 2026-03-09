@@ -1,203 +1,390 @@
 import type { Route } from "./+types/demo";
-import { usePipelineLoop } from "~/hooks/usePipelineLoop";
-import { useEventStream } from "~/hooks/useEventStream";
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Plane, Play, RotateCcw, Square, Wifi, WifiOff } from "lucide-react";
 import { PipelineView } from "~/components/pipeline/PipelineView";
-import { HeaderBar } from "~/components/dashboard/HeaderBar";
 import { TurbineCard } from "~/components/dashboard/TurbineCard";
-import { StoragePanel } from "~/components/dashboard/StoragePanel";
-import { ConnectionToggle } from "~/components/dashboard/ConnectionToggle";
-import { DataTables } from "~/components/dashboard/DataTables";
+import { CentralStorageCard, EdgeStorageCard } from "~/components/dashboard/StoragePanel";
+import { CentralDataTable, EdgeDataTable } from "~/components/dashboard/DataTables";
 import { IntroTour } from "~/components/dashboard/IntroTour";
-import { usePipelineStore } from "~/stores/pipelineStore";
+import { useEventStream } from "~/hooks/useEventStream";
 import { edgeguardApi } from "~/lib/api";
-import { motion, AnimatePresence } from "framer-motion";
-import { ShieldCheck } from "lucide-react";
+import {
+  selectCanClear,
+  selectCanToggleMeshGateway,
+  selectCanStart,
+  selectCanStop,
+  selectCanToggleLink,
+  selectIsMeshGatewayActive,
+  selectIsOnline,
+  selectIsRunning,
+} from "~/stores/pipelineSelectors";
+import {
+  usePipelineStore,
+} from "~/stores/pipelineStore";
+
+function DroneBadgeIcon({
+  active,
+  className = "h-4 w-4",
+}: {
+  active: boolean;
+  className?: string;
+}) {
+  return (
+    <Plane
+      className={className}
+      aria-hidden="true"
+      style={{ color: active ? "currentColor" : "var(--eg-flow)" }}
+      strokeWidth={2}
+    />
+  );
+}
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "EdgeGuard AI — Command Center" },
+    { title: "EdgeGuard AI - Command Center" },
     { name: "description", content: "EdgeGuard AI: Edge-Cloud Pipeline Intelligence" },
   ];
 }
 
+function VattenfallMark() {
+  return (
+    <div className="flex items-center gap-3">
+      <img
+        src="/vattenfall-logo-grey.svg"
+        alt="VATTENFALL"
+        className="block h-32 w-auto"
+      />
+      <div className="h-14 w-px bg-[var(--eg-border)]" />
+      <div className="text-[32px] font-display font-bold tracking-[-0.04em] text-[var(--eg-flow)]">
+        EdgeGuard
+      </div>
+    </div>
+  );
+}
+
 function BootOverlay() {
   const localInitialize = usePipelineStore((s) => s.initialize);
+  const clearPipelineData = usePipelineStore((s) => s.clearPipelineData);
+  const [isBooting, setIsBooting] = useState(false);
 
   const handleInitialize = async () => {
-    try {
-      await edgeguardApi.initialize();
-    } catch {
-      // Fallback to local if backend unreachable
-    }
+    if (isBooting) return;
+    setIsBooting(true);
+    clearPipelineData();
     localInitialize();
+
+    void (async () => {
+      try {
+        await edgeguardApi.initialize();
+        const status = await edgeguardApi.getStatus();
+        if (status.isRunning) {
+          await edgeguardApi.stop();
+        }
+      } catch {
+        // Leave the UI initialized even if the backend is momentarily unavailable.
+      } finally {
+        setIsBooting(false);
+      }
+    })();
   };
 
   return (
     <motion.div
       className="fixed inset-0 z-50 flex flex-col items-center justify-center"
-      style={{ backgroundColor: "#05080f" }}
+      style={{ backgroundColor: "var(--eg-bg)" }}
       initial={{ opacity: 1 }}
       exit={{ opacity: 0, scale: 1.05 }}
-      transition={{ duration: 0.6, ease: "easeInOut" }}
+      transition={{ duration: 0.35, ease: "easeInOut" }}
     >
-      {/* Scanlines atmosphere */}
-      <div className="absolute inset-0 eg-atmosphere pointer-events-none" />
+      <div className="eg-atmosphere pointer-events-none absolute inset-0" />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.03]"
+        style={{
+          backgroundImage:
+            "linear-gradient(var(--eg-flow) 1px, transparent 1px), linear-gradient(90deg, var(--eg-flow) 1px, transparent 1px)",
+          backgroundSize: "60px 60px",
+        }}
+      />
 
-      {/* Grid background */}
-      <div className="absolute inset-0 opacity-[0.03]" style={{
-        backgroundImage: "linear-gradient(var(--eg-flow) 1px, transparent 1px), linear-gradient(90deg, var(--eg-flow) 1px, transparent 1px)",
-        backgroundSize: "60px 60px",
-      }} />
-
-      {/* Central content */}
-      <div className="relative z-10 flex flex-col items-center gap-8">
-        {/* Logo glow ring */}
+      <div className="pointer-events-auto relative z-10 flex flex-col items-center gap-1">
         <motion.div
-          className="relative"
-          initial={{ scale: 0.6, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.2 }}
+          className="mt-[30px] flex flex-col items-center gap-0"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.3 }}
         >
-          <div className="w-28 h-28 rounded-full border-2 border-[var(--eg-flow)]/30 flex items-center justify-center relative">
-            <motion.div
-              className="absolute inset-0 rounded-full border border-[var(--eg-flow)]/20"
-              animate={{ scale: [1, 1.3, 1], opacity: [0.3, 0, 0.3] }}
-              transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-            />
-            <motion.div
-              className="absolute inset-0 rounded-full border border-[var(--eg-flow)]/10"
-              animate={{ scale: [1, 1.6, 1], opacity: [0.2, 0, 0.2] }}
-              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
-            />
-            <ShieldCheck className="w-12 h-12 text-[var(--eg-flow)]" strokeWidth={1.5} />
+          <img
+            src="/vattenfall-logo-grey.svg"
+            alt="VATTENFALL"
+            className="mb-[-46px] h-56 w-auto"
+          />
+          <div className="mt-[-4px] font-display text-[42px] font-bold tracking-[-0.04em] text-[var(--eg-flow)]">
+            EdgeGuard
           </div>
         </motion.div>
 
-        {/* Title */}
         <motion.div
-          className="text-center"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.6 }}
-        >
-          <h1
-            className="font-display text-3xl font-bold tracking-[0.2em] text-[var(--eg-flow)] mb-2"
-            style={{ textShadow: "0 0 30px var(--eg-flow-dim), 0 0 80px var(--eg-flow-glow)" }}
-          >
-            EDGEGUARD AI
-          </h1>
-          <motion.p
-            className="font-display text-[11px] tracking-[0.35em] text-[var(--eg-text-dim)] uppercase"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.8, duration: 0.5 }}
-          >
-            Edge-Cloud Pipeline Intelligence
-          </motion.p>
-        </motion.div>
-
-        {/* Status indicators */}
-        <motion.div
-          className="flex items-center gap-6 text-[9px] font-display tracking-[0.2em]"
+          className="mt-2 flex items-center gap-6 rounded-full border border-[var(--eg-border)] bg-white px-5 py-2 text-[9px] font-display tracking-[0.16em] shadow-[0_8px_24px_rgba(30,50,79,0.06)]"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 1.0, duration: 0.5 }}
+          transition={{ delay: 0.28, duration: 0.22 }}
         >
-          {["TURBINES", "EDGE AI", "COUCHBASE", "SYNC VALVE"].map((sys, i) => (
+          {["TURBINES", "EDGE AI", "COUCHBASE", "SYNC LINK"].map((system, index) => (
             <motion.div
-              key={sys}
+              key={system}
               className="flex items-center gap-1.5"
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 1.0 + i * 0.15 }}
+              transition={{ delay: 0.28 + index * 0.05, duration: 0.18 }}
             >
-              <div className="w-1.5 h-1.5 rounded-full bg-[var(--eg-alert)] animate-pulse" />
-              <span className="text-[var(--eg-text-dim)]">{sys}</span>
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--eg-alert)]" />
+              <span className="text-[var(--eg-text-dim)]">{system}</span>
             </motion.div>
           ))}
         </motion.div>
 
-        {/* Initialize button */}
         <motion.button
           onClick={handleInitialize}
-          className="relative mt-4 px-10 py-4 rounded-lg font-display text-sm tracking-[0.25em] font-bold text-[var(--eg-flow)] border-2 border-[var(--eg-flow)]/40 bg-[var(--eg-flow)]/5 overflow-hidden group"
+          disabled={isBooting}
+          className="relative mt-2 overflow-hidden rounded-full bg-[var(--eg-flow)] px-10 py-4 font-display text-sm font-semibold tracking-[0.08em] text-white shadow-[0_16px_32px_rgba(32,113,181,0.18)] disabled:cursor-not-allowed disabled:opacity-70"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.4, type: "spring", stiffness: 200, damping: 20 }}
-          whileHover={{ scale: 1.04, borderColor: "rgba(0,229,255,0.6)" }}
+          transition={{ delay: 0.4, type: "spring", stiffness: 220, damping: 20 }}
+          whileHover={{ scale: 1.04 }}
           whileTap={{ scale: 0.97 }}
         >
           <motion.div
-            className="absolute inset-0 bg-[var(--eg-flow)]/10"
-            animate={{ opacity: [0, 0.15, 0] }}
+            className="absolute inset-0 bg-white/20"
+            animate={{ opacity: [0, 0.18, 0] }}
             transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
           />
-          <span className="relative z-10">INITIALIZE SYSTEM</span>
+          <span className="relative z-10">{isBooting ? "INITIALIZING..." : "INITIALIZE SYSTEM"}</span>
         </motion.button>
-
-        {/* Version */}
-        <motion.p
-          className="text-[8px] font-mono text-[var(--eg-muted)] tracking-widest mt-2"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.8 }}
-        >
-          v2.1.0 — TIERED COMPACTION ENGINE
-        </motion.p>
       </div>
     </motion.div>
   );
 }
 
 export default function Demo() {
-  const isRunning = usePipelineStore((s) => s.isRunning);
+  const isRunning = usePipelineStore(selectIsRunning);
   const isInitialized = usePipelineStore((s) => s.isInitialized);
-  const introComplete = usePipelineStore((s) => s.introComplete);
+  const isOnline = usePipelineStore(selectIsOnline);
+  const metrics = usePipelineStore((s) => s.metrics);
+  const edgeStorageLength = usePipelineStore((s) => s.edgeStorage.length);
+  const edgeCapacity = usePipelineStore((s) => s.config.edgeCapacity);
+  const isMeshGatewayActive = usePipelineStore(selectIsMeshGatewayActive);
+  const canStart = usePipelineStore(selectCanStart);
+  const canStop = usePipelineStore(selectCanStop);
+  const canClear = usePipelineStore(selectCanClear);
+  const canToggleLink = usePipelineStore(selectCanToggleLink);
+  const canToggleMeshGateway = usePipelineStore(selectCanToggleMeshGateway);
+  const clearPipelineData = usePipelineStore((s) => s.clearPipelineData);
+  const beginClearing = usePipelineStore((s) => s.beginClearing);
+  const finishClearing = usePipelineStore((s) => s.finishClearing);
+  const setMeshGatewayOverride = usePipelineStore((s) => s.setMeshGatewayOverride);
+  const drainMeshGatewayOne = usePipelineStore((s) => s.drainMeshGatewayOne);
 
-  usePipelineLoop(isRunning);
+  useEffect(() => {
+    if (!isInitialized || !isRunning || isOnline || !isMeshGatewayActive) return;
+    const timer = window.setInterval(() => {
+      drainMeshGatewayOne();
+    }, 225);
+    return () => window.clearInterval(timer);
+  }, [drainMeshGatewayOne, isInitialized, isMeshGatewayActive, isOnline, isRunning]);
+
+  useEffect(() => {
+    if (!isMeshGatewayActive || edgeStorageLength > 0) return;
+    setMeshGatewayOverride(false);
+  }, [edgeStorageLength, isMeshGatewayActive, setMeshGatewayOverride]);
+
   useEventStream(isInitialized);
 
   const showBoot = !isInitialized;
-  const showTour = isInitialized && !introComplete;
+  const showTour = false;
+
+  const startSystem = () => {
+    const enabledTurbines = usePipelineStore.getState().enabledTurbines;
+    const ensureEnabled = enabledTurbines.length > 0
+      ? Promise.resolve()
+      : Promise.all([1, 2, 3].map((turbineId) => edgeguardApi.setTurbineEnabled(turbineId, true))).then(() => undefined);
+
+    ensureEnabled
+      .then(() => edgeguardApi.start())
+      .catch(() => {});
+  };
+  const stopSystem = () => {
+    edgeguardApi.stop().catch(() => {});
+  };
+  const toggleConnection = () => {
+    edgeguardApi.setConnection(!isOnline).catch(() => {});
+  };
+  const toggleMeshGateway = () => {
+    setMeshGatewayOverride(!isMeshGatewayActive);
+  };
+  const clearDatabase = async () => {
+    beginClearing();
+    try {
+      await edgeguardApi.clearDatabase();
+      clearPipelineData();
+    } catch {
+      // no-op for now
+    } finally {
+      finishClearing();
+    }
+  };
 
   return (
-    <div className="edgeguard-demo min-h-screen demo-bg eg-atmosphere text-[var(--eg-text)]" style={{ backgroundColor: "#05080f" }}>
+    <div
+      className="edgeguard-demo demo-bg eg-atmosphere min-h-screen text-[var(--eg-text)]"
+      style={{ backgroundColor: "var(--eg-bg)" }}
+    >
       <AnimatePresence>
         {showBoot && <BootOverlay />}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {showTour && <IntroTour />}
-      </AnimatePresence>
+      <AnimatePresence>{showTour && <IntroTour />}</AnimatePresence>
 
-      {/* Layout container */}
-      <div className="relative z-10 flex flex-col h-screen">
-        <HeaderBar />
+      <div className="relative z-10 flex min-h-screen flex-col">
+        <main className="mx-auto flex w-full max-w-[1560px] flex-1 flex-col gap-6 px-6 py-8">
+          <section className="flex flex-wrap items-start justify-between gap-6">
+            <div className="max-w-[720px]">
+              <VattenfallMark />
+            </div>
 
-        <div className="flex-1 grid grid-cols-[220px_1fr_240px] gap-4 p-4 min-h-0 pb-10">
-          {/* Left: Turbine cards + connection toggle */}
-          <div className="flex flex-col gap-3 overflow-y-auto">
+            <div className="grid min-w-[320px] grid-cols-3 gap-3">
+              <div className="eg-panel px-5 py-4">
+                <div className="text-[12px] font-display font-bold tracking-[0.04em] text-[var(--eg-text-dim)]">
+                  System
+                </div>
+                <div className="mt-2 flex items-center gap-3 text-[22px] font-bold text-[var(--eg-text)]">
+                  <span>{isRunning ? "Running" : "Standby"}</span>
+                  {isRunning ? (
+                    <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-[var(--eg-flow)] border-t-transparent" />
+                  ) : null}
+                </div>
+              </div>
+              <div className="eg-panel px-5 py-4">
+                <div className="text-[12px] font-display font-bold tracking-[0.04em] text-[var(--eg-text-dim)]">
+                  Connection
+                </div>
+                <div className="mt-2 text-[22px] font-bold text-[var(--eg-text)]">
+                  {isOnline ? "Online" : "Offline"}
+                </div>
+              </div>
+              <div className="eg-panel px-5 py-4">
+                <div className="text-[12px] font-display font-bold tracking-[0.04em] text-[var(--eg-text-dim)]">
+                  Anomalies
+                </div>
+                <div className="mt-2 text-[22px] font-bold text-[var(--eg-text)]">
+                  {metrics.totalAnomalies}/{metrics.totalPacketsEmitted || 0}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="flex flex-wrap items-center gap-3 border-b border-[var(--eg-border)] pb-4">
+            {isRunning ? (
+              <button
+                onClick={stopSystem}
+                disabled={!canStop}
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--eg-anomaly)] bg-[var(--eg-anomaly)] px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] text-white disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Square className="h-4 w-4" />
+                Stop System
+              </button>
+            ) : (
+              <button
+                onClick={startSystem}
+                disabled={!canStart}
+                className="inline-flex items-center gap-2 rounded-full bg-[var(--eg-flow)] px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] text-white disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Play className="h-4 w-4" />
+                Start System
+              </button>
+            )}
+
+            <button
+              onClick={toggleConnection}
+              disabled={!canToggleLink}
+              className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] ${
+                isOnline
+                  ? "border border-[var(--eg-anomaly)] bg-[var(--eg-anomaly)] text-white"
+                  : "border border-[var(--eg-flow)] bg-white text-[var(--eg-flow)]"
+              } disabled:cursor-not-allowed disabled:opacity-45`}
+            >
+              {isOnline ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4" />}
+              {isOnline ? "Kill Connection" : "Restore Link"}
+            </button>
+
+            <button
+              onClick={toggleMeshGateway}
+              disabled={!canToggleMeshGateway}
+              className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] ${
+                isMeshGatewayActive
+                  ? "border border-[var(--eg-ok)] bg-[var(--eg-ok)] text-white"
+                  : "border border-[var(--eg-border)] bg-white text-[var(--eg-flow)]"
+              } disabled:cursor-not-allowed disabled:opacity-45`}
+            >
+              <DroneBadgeIcon active={isMeshGatewayActive} />
+              {isMeshGatewayActive ? "Close Mesh Gateway" : "Open Mesh Gateway"}
+            </button>
+
+            <button
+              onClick={clearDatabase}
+              disabled={!canClear}
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--eg-border)] bg-white px-5 py-3 text-[14px] font-display font-bold tracking-[0.03em] text-[var(--eg-flow)] disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Clear Database
+            </button>
+
+            <div className="ml-auto flex flex-wrap gap-3">
+              <div className="rounded-2xl border border-[var(--eg-border)] bg-white px-4 py-2 text-[13px] text-[var(--eg-text)]">
+                {isRunning ? "Live simulation" : "System idle"}
+              </div>
+              <div className="rounded-2xl border border-[var(--eg-border)] bg-white px-4 py-2 text-[13px] text-[var(--eg-text)]">
+                Edge capacity {edgeCapacity}
+              </div>
+              <div className="rounded-2xl border border-[var(--eg-border)] bg-white px-4 py-2 text-[13px] text-[var(--eg-text)]">
+                Edge buffer {edgeStorageLength}
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-3">
             <TurbineCard turbineId={1} delay={0.1} />
             <TurbineCard turbineId={2} delay={0.2} />
             <TurbineCard turbineId={3} delay={0.3} />
-            <ConnectionToggle delay={0.4} />
-          </div>
+          </section>
 
-          {/* Center: Pipeline on top, data tables filling below */}
-          <div className="flex flex-col gap-3 min-h-0">
-            <div className="shrink-0">
+          <section className="flex min-h-0 flex-col gap-5">
+            <div className="eg-panel p-6">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-[11px] font-display font-semibold tracking-[0.08em] text-[var(--eg-text-dim)]">
+                    DATA PIPELINE
+                  </div>
+                </div>
+                <div className="rounded-full bg-[var(--eg-alert)]/18 px-4 py-2 text-[12px] font-display font-semibold tracking-[0.06em] text-[var(--eg-text)]">
+                  {isOnline ? "SYNC ACTIVE" : isMeshGatewayActive ? "MESH DRAIN ACTIVE" : "EDGE BUFFERING"}
+                </div>
+              </div>
               <PipelineView />
             </div>
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <DataTables />
-            </div>
-          </div>
 
-          {/* Right: Storage panels (summary only) */}
-          <div className="overflow-y-auto">
-            <StoragePanel delay={0.2} />
-          </div>
-        </div>
+            <div className="grid min-h-[520px] gap-5 xl:grid-cols-2">
+              <div className="flex min-h-0 flex-col gap-4">
+                <EdgeStorageCard delay={0.2} />
+                <EdgeDataTable />
+              </div>
+              <div className="flex min-h-0 flex-col gap-4">
+                <CentralStorageCard delay={0.25} />
+                <CentralDataTable />
+              </div>
+            </div>
+          </section>
+        </main>
       </div>
     </div>
   );

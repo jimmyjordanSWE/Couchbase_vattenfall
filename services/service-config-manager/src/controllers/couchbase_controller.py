@@ -1,4 +1,5 @@
 import os
+import socket
 import time
 import urllib.request
 import urllib.error
@@ -50,6 +51,32 @@ class CouchbaseController:
         self.cluster = None
         
         self.logger.info(f"📡 Connection: {self.host} (TLS: {self.tls}, Type: {self.couchbase_type})")
+        self.host = self._resolve_reachable_host(self.host, 18091 if self.tls else 8091)
+
+    def _resolve_reachable_host(self, host: str, port: int) -> str:
+        seen: set[str] = set()
+        try:
+            addrinfos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except OSError:
+            return host
+
+        for family, socktype, proto, _, sockaddr in addrinfos:
+            ip = sockaddr[0]
+            if ip in seen:
+                continue
+            seen.add(ip)
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(1.0)
+            try:
+                sock.connect(sockaddr)
+                self.logger.info(f"📍 Resolved {host}:{port} to reachable node {ip}")
+                return ip
+            except OSError:
+                continue
+            finally:
+                sock.close()
+
+        return host
 
     def _get_env_var(self, name: str, default: str = None) -> str:
         """Get environment variable with optional default."""

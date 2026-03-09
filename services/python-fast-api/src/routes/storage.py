@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
-import db
-from simulation import engine, EDGE_CAPACITY, CENTRAL_STORAGE_LIMIT
+from persistence import edge_store, central_store
+from pipeline.runtime import engine, EDGE_CAPACITY, CENTRAL_STORAGE_LIMIT
 
 storage_router = APIRouter(prefix="/api/storage", tags=["storage"])
 
@@ -11,7 +11,7 @@ storage_router = APIRouter(prefix="/api/storage", tags=["storage"])
 async def get_edge_storage():
     """Return edge storage from Edge Server (persisted), capped at EDGE_CAPACITY. Fallback to in-memory if Edge Server unreachable."""
     try:
-        docs = await db.edge_list_docs_async(limit=100)
+        docs = await edge_store.list_docs(limit=100)
         return docs[-EDGE_CAPACITY:]  # most recent only, match buffer size
     except Exception:
         return engine.edge_storage
@@ -43,6 +43,6 @@ async def clear_all_storage():
 async def get_central_storage():
     """Return central storage from Couchbase Server (persisted). Fallback to in-memory if DB unreachable."""
     try:
-        return await db.central_list_storage_async(limit=CENTRAL_STORAGE_LIMIT)
+        return await central_store.list_items(limit=CENTRAL_STORAGE_LIMIT)
     except Exception:
         return engine.central_storage

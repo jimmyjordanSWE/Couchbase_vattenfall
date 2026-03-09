@@ -4,14 +4,15 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: "Rajdhani", ui-sans-serif, system-ui, sans-serif,
+  --font-sans: "IBM Plex Sans", "Segoe UI", ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
 html,
 body {
-  background-color: #05080f;
-  color-scheme: dark;
+  background-color: #f6f8fb;
+  color-scheme: light;
+  font-size: 16px;
 }
 
 @theme inline {
@@ -124,34 +125,35 @@ body {
 }
 
 /* ================================================================
-   EDGEGUARD COMMAND CENTER - Industrial Sci-Fi Theme
+   EDGEGUARD - Vattenfall inspired light product theme
    ================================================================ */
 
 .edgeguard-demo {
-  --eg-bg: #05080f;
-  --eg-surface: #0c1220;
-  --eg-panel: rgba(12, 18, 32, 0.92);
-  --eg-border: #1a2744;
-  --eg-border-bright: #2a3d66;
-  --eg-muted: #3a4a5c;
-  --eg-flow: #00e5ff;
-  --eg-flow-dim: rgba(0, 229, 255, 0.35);
-  --eg-flow-glow: rgba(0, 229, 255, 0.15);
-  --eg-alert: #ffab00;
-  --eg-anomaly: #ff3d5a;
-  --eg-anomaly-dim: rgba(255, 61, 90, 0.35);
-  --eg-ok: #00e676;
-  --eg-ok-dim: rgba(0, 230, 118, 0.3);
-  --eg-text: #c8d6e5;
-  --eg-text-dim: #6b7d99;
-  --eg-text-bright: #e8f0ff;
+  --eg-bg: #f6f8fb;
+  --eg-surface: #ffffff;
+  --eg-panel: rgba(255, 255, 255, 0.96);
+  --eg-border: #d8e0e8;
+  --eg-border-bright: #c2cfda;
+  --eg-muted: #8a949d;
+  --eg-flow: #2071b5;
+  --eg-flow-dim: rgba(32, 113, 181, 0.18);
+  --eg-flow-glow: rgba(32, 113, 181, 0.08);
+  --eg-alert: #ffda00;
+  --eg-anomaly: #f93b18;
+  --eg-anomaly-dim: rgba(249, 59, 24, 0.22);
+  --eg-ok: #3dc07c;
+  --eg-ok-dim: rgba(61, 192, 124, 0.14);
+  --eg-text: #1e324f;
+  --eg-text-dim: #4e4b48;
+  --eg-text-bright: #1e324f;
   --eg-pressure: 0;
-  font-family: "Rajdhani", ui-sans-serif, sans-serif;
-  font-weight: 500;
+  font-family: "IBM Plex Sans", "Segoe UI", ui-sans-serif, sans-serif;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .edgeguard-demo .font-display {
-  font-family: "Orbitron", ui-sans-serif, sans-serif;
+  font-family: "IBM Plex Sans", "Segoe UI", ui-sans-serif, sans-serif;
 }
 
 .edgeguard-demo .font-mono {
@@ -163,22 +165,22 @@ body {
   filter: drop-shadow(0 0 6px var(--eg-flow)) drop-shadow(0 0 20px var(--eg-flow-dim));
 }
 .glow-cyan-box {
-  box-shadow: 0 0 12px var(--eg-flow-dim), 0 0 40px var(--eg-flow-glow), inset 0 0 12px var(--eg-flow-glow);
+  box-shadow: 0 6px 24px rgba(30, 50, 79, 0.08);
 }
 .glow-red {
   filter: drop-shadow(0 0 6px var(--eg-anomaly)) drop-shadow(0 0 20px var(--eg-anomaly-dim));
 }
 .glow-red-box {
-  box-shadow: 0 0 12px var(--eg-anomaly-dim), 0 0 40px rgba(255, 61, 90, 0.15), inset 0 0 12px rgba(255, 61, 90, 0.08);
+  box-shadow: 0 6px 24px rgba(249, 59, 24, 0.08);
 }
 .glow-amber-box {
-  box-shadow: 0 0 12px rgba(255, 171, 0, 0.3), 0 0 40px rgba(255, 171, 0, 0.1);
+  box-shadow: 0 6px 24px rgba(255, 218, 0, 0.16);
 }
 .glow-green-box {
-  box-shadow: 0 0 8px var(--eg-ok-dim), 0 0 24px rgba(0, 230, 118, 0.12);
+  box-shadow: 0 6px 24px rgba(61, 192, 124, 0.12);
 }
 
-/* Background: layered atmosphere */
+/* Background */
 .edgeguard-demo.demo-bg {
   background-color: var(--eg-bg);
   position: relative;
@@ -190,61 +192,50 @@ body {
   position: absolute;
   inset: 0;
   background-image:
-    radial-gradient(circle at 15% 10%, rgba(0, 229, 255, 0.07), transparent 40%),
-    radial-gradient(circle at 85% 80%, rgba(255, 61, 90, 0.05), transparent 35%),
-    radial-gradient(circle at 50% 50%, rgba(0, 229, 255, 0.02), transparent 70%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(246, 248, 251, 0.98));
   pointer-events: none;
   z-index: 0;
 }
 
-/* Animated grid */
 .edgeguard-demo.demo-bg::after {
   content: "";
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(90deg, rgba(26, 39, 68, 0.4) 1px, transparent 1px),
-    linear-gradient(rgba(26, 39, 68, 0.25) 1px, transparent 1px);
-  background-size: 24px 24px;
+    linear-gradient(90deg, rgba(32, 113, 181, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(32, 113, 181, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
   pointer-events: none;
   z-index: 0;
 }
 
-/* Atmosphere: scanlines + vignette via pseudo-elements (no DOM = no click interception) */
+/* Soft product-shell atmosphere */
 .eg-atmosphere::before {
   content: "";
   position: fixed;
   inset: 0;
-  background:
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0, 0, 0, 0.03) 2px,
-      rgba(0, 0, 0, 0.03) 4px
-    ),
-    radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.45) 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 18%);
   pointer-events: none;
-  z-index: 50;
+  z-index: 1;
 }
 
 /* Panel cards */
 .edgeguard-demo .eg-panel {
   background: var(--eg-panel);
   border: 1px solid var(--eg-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  box-shadow: 0 10px 34px rgba(30, 50, 79, 0.08);
 }
 
 .edgeguard-demo .eg-panel-glow {
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 0 1px var(--eg-flow-dim), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: 0 10px 34px rgba(30, 50, 79, 0.08);
 }
 
 .edgeguard-demo .eg-label {
-  font-family: "Orbitron", ui-sans-serif, sans-serif;
+  font-family: "IBM Plex Sans", "Segoe UI", ui-sans-serif, sans-serif;
   font-size: 0.6rem;
   font-weight: 600;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--eg-text-dim);
 }
@@ -258,12 +249,12 @@ body {
 }
 .eg-led-online {
   background: var(--eg-ok);
-  box-shadow: 0 0 6px var(--eg-ok), 0 0 16px var(--eg-ok-dim);
+  box-shadow: none;
   animation: led-pulse 2s ease-in-out infinite;
 }
 .eg-led-offline {
   background: var(--eg-anomaly);
-  box-shadow: 0 0 6px var(--eg-anomaly), 0 0 16px var(--eg-anomaly-dim);
+  box-shadow: none;
   animation: led-pulse-fast 0.8s ease-in-out infinite;
 }
 

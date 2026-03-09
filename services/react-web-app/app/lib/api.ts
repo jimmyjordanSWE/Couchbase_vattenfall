@@ -1,12 +1,10 @@
-import type {
-  DataPoint,
-  EdgeGuardItem,
-} from "~/types/edgeguard";
+import type { DataPoint, EdgeGuardItem } from "~/types/edgeguard";
 
 // ---------- Types matching backend Pydantic models ----------
 
 export interface SystemConfig {
   edgeCapacity: number;
+  centralCapacity?: number;
   compactionThreshold: number;
   turbineCount: number;
   emitIntervalMs: number;
@@ -17,6 +15,8 @@ export interface SystemStatus {
   isRunning: boolean;
   isInitialized: boolean;
   isOnline: boolean;
+  isRecoverySyncActive?: boolean;
+  isMeshGatewayActive?: boolean;
   sequenceNumber: number;
   enabledTurbines: number[];
 }
@@ -41,19 +41,25 @@ export interface CompactionLogEntry {
 
 export interface EdgeUpdatePayload {
   item: EdgeGuardItem;
+  edgeStorage: EdgeGuardItem[];
   storageLength: number;
   pressure: number;
 }
 
 export interface CentralUpdatePayload {
   item: EdgeGuardItem;
+  removedEdgeId?: string | null;
+  edgeStorage: EdgeGuardItem[];
+  centralStorage: EdgeGuardItem[];
   lastSyncTimestamp: number;
+  pressure: number;
 }
 
 export interface CompactionPayload {
   log: CompactionLogEntry;
   edgeStorage: EdgeGuardItem[];
   compactionCount: number;
+  pressure: number;
 }
 
 /** Initial state sent when a client connects to the SSE stream (so edge/central data is visible after refresh). */
@@ -110,8 +116,11 @@ export const edgeguardApi = {
   initialize: () => request<{ ok: boolean }>("POST", "/api/system/initialize"),
   start: () => request<{ ok: boolean }>("POST", "/api/system/start"),
   stop: () => request<{ ok: boolean }>("POST", "/api/system/stop"),
+  clearDatabase: () => request<{ ok: boolean }>("POST", "/api/storage/clear"),
   setConnection: (online: boolean) =>
     request<{ ok: boolean }>("POST", "/api/connection", { online }),
+  setMeshGateway: (_active: boolean) =>
+    Promise.resolve({ ok: false }),
   setTurbineEnabled: (turbineId: number, enabled: boolean) =>
     request<{ ok: boolean }>("PATCH", `/api/turbines/${turbineId}`, { enabled }),
   injectAnomaly: (turbineId: number) =>

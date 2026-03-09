@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from pydantic import BaseModel
 
-from simulation import engine, TURBINE_COUNT
+from pipeline.runtime import engine, TURBINE_COUNT
 
 turbines_router = APIRouter(prefix="/api/turbines", tags=["turbines"])
 
@@ -29,7 +29,7 @@ async def set_turbine_enabled(turbine_id: int, body: TurbineEnabledBody):
 @turbines_router.post("/{turbine_id}/anomaly")
 async def inject_anomaly(turbine_id: int):
     _validate_turbine(turbine_id)
-    engine.inject_anomaly(turbine_id)
+    await engine.inject_anomaly(turbine_id)
     return {"ok": True}
 
 

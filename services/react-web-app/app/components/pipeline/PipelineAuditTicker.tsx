@@ -39,7 +39,7 @@ export function PipelineAuditTicker() {
             initial={{ opacity: 1, height: "auto" }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 2, exit: { duration: 0.3 } }}
+            transition={{ duration: 0.3 }}
             className="bg-[var(--eg-alert)]/10 border-t border-[var(--eg-alert)]/30 text-center py-1"
           >
             <span className="text-[10px] font-display tracking-[0.15em] text-[var(--eg-alert)]">

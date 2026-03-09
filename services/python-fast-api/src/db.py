@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 from typing import Any
 from urllib.parse import quote
 
@@ -25,7 +26,7 @@ from clients.couchbase.couchbase import CouchbaseClient, get_client, Keyspace
 _ES_HOST     = os.environ.get("EDGE_SERVER_HOST", "couchbase-edge-server")
 _ES_PORT     = os.environ.get("EDGE_SERVER_PORT", "59840")
 _ES_DB       = os.environ.get("EDGE_SERVER_DB",   "main")
-_ES_BASE_URL = f"http://{_ES_HOST}:{_ES_PORT}/{_ES_DB}"
+_ES_BASE_URL: str | None = None
 
 _es_client: httpx.AsyncClient | None = None
 
@@ -35,6 +36,39 @@ def _get_es_client() -> httpx.AsyncClient:
     if _es_client is None:
         _es_client = httpx.AsyncClient(timeout=5.0)
     return _es_client
+
+
+def _resolve_reachable_host(host: str, port: str) -> str:
+    seen: set[str] = set()
+    try:
+        addrinfos = socket.getaddrinfo(host, int(port), type=socket.SOCK_STREAM)
+    except OSError:
+        return host
+
+    for family, socktype, proto, _, sockaddr in addrinfos:
+        ip = sockaddr[0]
+        if ip in seen:
+            continue
+        seen.add(ip)
+        sock = socket.socket(family, socktype, proto)
+        sock.settimeout(1.0)
+        try:
+            sock.connect(sockaddr)
+            return ip
+        except OSError:
+            continue
+        finally:
+            sock.close()
+
+    return host
+
+
+def _get_es_base_url() -> str:
+    global _ES_BASE_URL
+    if _ES_BASE_URL is None:
+        resolved_host = _resolve_reachable_host(_ES_HOST, _ES_PORT)
+        _ES_BASE_URL = f"http://{resolved_host}:{_ES_PORT}/{_ES_DB}"
+    return _ES_BASE_URL
 
 
 # ---------------------------------------------------------------------------
@@ -77,22 +111,25 @@ async def edge_put_async(doc: dict, key: str, *, keyspace: str | None = None) ->
     try:
         client = _get_es_client()
         key_encoded = quote(key, safe="")
+        base_url = _get_es_base_url()
         if keyspace:
-            url = f"{_ES_BASE_URL}.{keyspace}/{key_encoded}"
+            url = f"{base_url}.{keyspace}/{key_encoded}"
         else:
-            url = f"{_ES_BASE_URL}/{key_encoded}"
+            url = f"{base_url}/{key_encoded}"
         response = await client.put(url, json=doc)
         if response.status_code not in (200, 201):
             _log_warn(
                 f"Edge Server PUT failed: {response.status_code} — {response.text[:200]} | URL: {url}"
             )
     except Exception as e:
-        _log_warn(f"Edge Server PUT failed ({key}): {e}")
+        global _ES_BASE_URL
+        _ES_BASE_URL = None
+        _log_warn(f"Edge Server PUT failed ({key}): {e!r}")
 
 
 async def _edge_get_rev(key_encoded: str, keyspace: str, client: httpx.AsyncClient) -> str | None:
     """Fetch the latest revision ID for a document on the Edge Server."""
-    url = f"{_ES_BASE_URL}.{keyspace}/{key_encoded}"
+    url = f"{_get_es_base_url()}.{keyspace}/{key_encoded}"
     try:
         response = await client.get(url)
         if response.status_code == 200:
@@ -115,14 +152,16 @@ async def edge_delete_async(key: str, keyspace: str) -> None:
             return  # Probably already deleted or doesn't exist
             
         # 2. Issue DELETE with ?rev= parameter
-        url = f"{_ES_BASE_URL}.{keyspace}/{key_encoded}?rev={quote(rev)}"
+        url = f"{_get_es_base_url()}.{keyspace}/{key_encoded}?rev={quote(rev)}"
         response = await client.delete(url)
         if response.status_code not in (200, 204):
             _log_warn(
                 f"Edge Server DELETE failed: {response.status_code} — {response.text[:200]} | URL: {url}"
             )
     except Exception as e:
-        _log_warn(f"Edge Server DELETE failed ({key}): {e}")
+        global _ES_BASE_URL
+        _ES_BASE_URL = None
+        _log_warn(f"Edge Server DELETE failed ({key}): {e!r}")
 
 
 async def _edge_delete_ignore_conflict(key: str, keyspace: str) -> None:
@@ -135,20 +174,22 @@ async def _edge_delete_ignore_conflict(key: str, keyspace: str) -> None:
         if not rev:
             return
             
-        url = f"{_ES_BASE_URL}.{keyspace}/{key_encoded}?rev={quote(rev)}"
+        url = f"{_get_es_base_url()}.{keyspace}/{key_encoded}?rev={quote(rev)}"
         response = await client.delete(url)
         if response.status_code in (200, 204, 404, 409):
             return
         _log_warn(f"Edge Server DELETE unexpected: {response.status_code} — {response.text[:200]}")
     except Exception as e:
-        _log_warn(f"Edge Server DELETE failed ({key}): {e}")
+        global _ES_BASE_URL
+        _ES_BASE_URL = None
+        _log_warn(f"Edge Server DELETE failed ({key}): {e!r}")
 
 
 async def edge_list_docs_async(limit: int = 100, keyspace: str | None = None) -> list[dict]:
     """List documents from Edge Server REST API (single collection central.data). Returns sorted list for UI."""
     client = _get_es_client()
     ks = keyspace or "central.data"
-    url = f"{_ES_BASE_URL}.{ks}/_all_docs"
+    url = f"{_get_es_base_url()}.{ks}/_all_docs"
     all_docs: list[dict] = []
     try:
         response = await client.post(
@@ -175,7 +216,9 @@ async def edge_list_docs_async(limit: int = 100, keyspace: str | None = None) ->
                 doc = {**doc, "id": doc_id}
             all_docs.append(doc)
     except Exception as e:
-        _log_warn(f"Edge Server _all_docs failed ({ks}): {e}")
+        global _ES_BASE_URL
+        _ES_BASE_URL = None
+        _log_warn(f"Edge Server _all_docs failed ({ks}): {e!r}")
     def _sort_key(d: dict) -> tuple[int, int]:
         ts = d.get("timestamp") or 0
         seq = d.get("seq") or 0
@@ -187,7 +230,7 @@ async def edge_list_docs_async(limit: int = 100, keyspace: str | None = None) ->
 async def _edge_list_doc_keys_async(keyspace: str, limit: int = 500) -> list[str]:
     """List document keys (ids) from Edge Server for a keyspace. Uses row key from _all_docs so delete uses the same key."""
     client = _get_es_client()
-    url = f"{_ES_BASE_URL}.{keyspace}/_all_docs"
+    url = f"{_get_es_base_url()}.{keyspace}/_all_docs"
     keys: list[str] = []
     try:
         response = await client.post(
@@ -204,14 +247,16 @@ async def _edge_list_doc_keys_async(keyspace: str, limit: int = 500) -> list[str
             if doc_key is not None:
                 keys.append(str(doc_key))
     except Exception as e:
-        _log_warn(f"Edge Server _all_docs (keys) failed ({keyspace}): {e}")
+        global _ES_BASE_URL
+        _ES_BASE_URL = None
+        _log_warn(f"Edge Server _all_docs (keys) failed ({keyspace}): {e!r}")
     return keys
 
 
 async def _edge_list_id_rev_async(keyspace: str, limit: int = 500) -> list[tuple[str, str]]:
     """List document id and _rev from Edge Server for bulk delete. Returns [(id, rev), ...]; rev may be empty."""
     client = _get_es_client()
-    url = f"{_ES_BASE_URL}.{keyspace}/_all_docs"
+    url = f"{_get_es_base_url()}.{keyspace}/_all_docs"
     out: list[tuple[str, str]] = []
     try:
         response = await client.post(
@@ -234,7 +279,9 @@ async def _edge_list_id_rev_async(keyspace: str, limit: int = 500) -> list[tuple
                 rev = rev or row["value"].get("rev") or row["value"].get("_rev") or ""
             out.append((doc_id, rev))
     except Exception as e:
-        _log_warn(f"Edge Server _all_docs (id/rev) failed ({keyspace}): {e}")
+        global _ES_BASE_URL
+        _ES_BASE_URL = None
+        _log_warn(f"Edge Server _all_docs (id/rev) failed ({keyspace}): {e!r}")
     return out
 
 
@@ -246,7 +293,7 @@ async def edge_clear_all_async() -> None:
         if not id_revs:
             return
         client = _get_es_client()
-        bulk_url = f"{_ES_BASE_URL}.{ks}/_bulk_docs"
+        bulk_url = f"{_get_es_base_url()}.{ks}/_bulk_docs"
         docs_with_rev = [(i, r) for i, r in id_revs if r]
         if docs_with_rev:
             body = {

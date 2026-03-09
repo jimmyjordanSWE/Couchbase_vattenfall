@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-03-09",
+  "tool": "tree-sitter 0.26.6",
+  "config_root": ".analysis/tree-sitter-home",
+  "grammars": [
+    ".analysis/grammars/tree-sitter-python",
+    ".analysis/grammars/tree-sitter-typescript"
+  ],
+  "parse_summaries": [
+    {
+      "file": "services/python-fast-api/src/simulation.py",
+      "successful": true,
+      "lines": 727,
+      "bytes": 29051,
+      "duration_nanos": 22532935
+    },
+    {
+      "file": "services/react-web-app/app/stores/pipelineStore.ts",
+      "successful": true,
+      "lines": 411,
+      "bytes": 11948,
+      "duration_nanos": 4044762
+    },
+    {
+      "file": "services/react-web-app/app/components/pipeline/PipelineView.tsx",
+      "successful": true,
+      "lines": 838,
+      "bytes": 31805,
+      "duration_nanos": 5522115
+    }
+  ],
+  "notes": [
+    "Tree-sitter parsing is healthy for the main Python and TypeScript hot-path files.",
+    "Tag generation worked for Python. Tag generation for TypeScript/TSX was blocked by an upstream query dependency on tree-sitter-javascript tags metadata."
+  ]
+}

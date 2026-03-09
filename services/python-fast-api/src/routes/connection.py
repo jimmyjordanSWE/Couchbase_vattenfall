@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from simulation import engine
+from pipeline.runtime import engine
 
 connection_router = APIRouter(prefix="/api", tags=["connection"])
 
