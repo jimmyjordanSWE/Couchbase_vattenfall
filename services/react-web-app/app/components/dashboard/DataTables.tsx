@@ -1,147 +1,320 @@
-import type { ReactNode } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { usePipelineStore } from "~/stores/pipelineStore";
 import type { EdgeGuardItem } from "~/types/edgeguard";
-import { isCompactedBlock, isDataPoint } from "~/types/edgeguard";
+import { isDataPoint, isCompactedBlock, SENSOR_RANGES, sensorColor } from "~/types/edgeguard";
 
 const MAX_ROWS = 10;
 
+// ---------------------------------------------------------------------------
+// Sensor values row (inline under main data)
+// ---------------------------------------------------------------------------
+
+function SensorValuesRow({ sensors }: { sensors: NonNullable<import("~/types/edgeguard").DataPoint["sensors"]> }) {
+  const keys = ["temperature", "vibration", "rpm", "powerOutput", "windSpeed", "bladePitch"] as const;
+  const abbreviations: Record<string, string> = {
+    temperature: "TMP",
+    vibration: "VIB",
+    rpm: "RPM",
+    powerOutput: "PWR",
+    windSpeed: "WND",
+    bladePitch: "PTC",
+  };
+
+  return (
+    <div className="flex flex-row items-center justify-between px-3 pb-2 pt-0.5 gap-2 overflow-hidden border-t" style={{ borderColor: "var(--eg-border)" }}>
+      {keys.map((key) => {
+        const value = sensors[key];
+        const color = sensorColor(key, value);
+
+        return (
+          <div key={key} className="flex items-center gap-1 min-w-0">
+            <span
+              className="text-[9px] font-medium shrink-0"
+              style={{ color: "var(--eg-text-dim)", fontFamily: "Outfit, sans-serif" }}
+            >
+              {abbreviations[key]}:
+            </span>
+            <span
+              className="text-[10px] font-semibold truncate"
+              style={{ color, fontFamily: "IBM Plex Mono, monospace" }}
+            >
+              {value % 1 === 0 ? value : value.toFixed(1)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Key helpers
+// ---------------------------------------------------------------------------
+
 function itemKey(item: EdgeGuardItem, index: number): string {
-  if (isDataPoint(item)) return item.id;
-  if (isCompactedBlock(item)) return `compact_${item.range}_${item.tier}`;
+  if (isDataPoint(item))       return item.id;
+  if (isCompactedBlock(item))  return (item as import("~/types/edgeguard").CompactedBlock).id ?? `compact_${item.range}_${item.tier}`;
   return `item_${index}`;
 }
+
+// ---------------------------------------------------------------------------
+// Table shell
+// ---------------------------------------------------------------------------
 
 function TableShell({
   title,
   count,
   children,
+  scrollRef,
 }: {
   title: string;
   count: number;
-  children: ReactNode;
+  children: React.ReactNode;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
-    <div className="eg-panel flex min-h-[340px] min-w-0 flex-1 flex-col p-5">
-      <div className="mb-2 flex shrink-0 items-center justify-between">
+    <div
+      className="flex-1 min-w-0 flex flex-col overflow-hidden"
+      style={{
+        backgroundColor: "var(--eg-surface)",
+        border: "1px solid var(--eg-border)",
+        borderRadius: 8,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+      }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-4 py-3 shrink-0 border-b"
+        style={{ borderColor: "var(--eg-border)" }}
+      >
         <div className="flex items-center gap-2">
-          <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden>
-            <ellipse cx="7" cy="3" rx="6" ry="2" fill="none" stroke="var(--eg-flow)" strokeWidth="1" />
-            <rect x="1" y="3" width="12" height="8" fill="none" stroke="var(--eg-flow)" strokeWidth="1" />
-            <ellipse cx="7" cy="11" rx="6" ry="2" fill="none" stroke="var(--eg-flow)" strokeWidth="1" />
+          <svg width="13" height="13" viewBox="0 0 14 14">
+            <ellipse cx="7" cy="3" rx="6" ry="2" fill="none" stroke="var(--eg-flow)" strokeWidth="1.2" />
+            <rect x="1" y="3" width="12" height="8" fill="none" stroke="var(--eg-flow)" strokeWidth="1.2" />
+            <ellipse cx="7" cy="11" rx="6" ry="2" fill="none" stroke="var(--eg-flow)" strokeWidth="1.2" />
           </svg>
-          <span className="font-display text-[15px] font-semibold tracking-[0.02em] text-[var(--eg-text-bright)]">
+          <span
+            className="text-sm font-semibold uppercase tracking-wide"
+            style={{ color: "var(--eg-text-bright)", fontFamily: "Outfit, sans-serif" }}
+          >
             {title}
           </span>
         </div>
-        <span className="font-mono text-[12px] text-[var(--eg-text-dim)]">{count} items</span>
+        <span
+          className="text-xs"
+          style={{ color: "var(--eg-text-dim)", fontFamily: "IBM Plex Mono, monospace" }}
+        >
+          {count} items
+        </span>
       </div>
 
-      <div className="grid shrink-0 grid-cols-[50px_40px_60px_60px_60px] gap-1 border-b border-[var(--eg-border)] px-2 py-2 text-[11px] font-display tracking-[0.02em] text-[var(--eg-text-dim)]">
-        <span>SEQ</span>
-        <span>SRC</span>
-        <span>VALUE</span>
-        <span>SCORE</span>
-        <span>TYPE</span>
+      {/* Column headers */}
+      <div
+        className="grid grid-cols-[60px_44px_1fr_80px] gap-1 px-4 py-2 shrink-0 border-b"
+        style={{ borderColor: "var(--eg-border)", backgroundColor: "var(--eg-bg)" }}
+      >
+        {["SEQ", "SRC", "VALUE / SCORE", "TYPE"].map((h) => (
+          <span
+            key={h}
+            className="text-[10px] font-semibold uppercase"
+            style={{ color: "var(--eg-text-dim)", fontFamily: "Outfit, sans-serif", letterSpacing: "0.05em" }}
+          >
+            {h}
+          </span>
+        ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {children}
+      {/* Rows */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto eg-scrollbar">
+        <AnimatePresence mode="popLayout" initial={false}>
+          {children}
+        </AnimatePresence>
       </div>
     </div>
   );
 }
 
-function DataRow({ item }: { item: EdgeGuardItem }) {
+// ---------------------------------------------------------------------------
+// Data row (with optional sensor expansion)
+// ---------------------------------------------------------------------------
+
+function DataRow({
+  item,
+  key,
+}: {
+  item: EdgeGuardItem;
+  key?: React.Key;
+}) {
   if (isDataPoint(item)) {
     const isAnomaly = item.type === "anomaly";
+    const hasSensors = item.sensors != null;
+
     return (
-      <div
-        className={`grid h-8 grid-cols-[50px_40px_60px_60px_60px] gap-1 border-b border-[var(--eg-border)]/40 px-2 text-[11px] font-mono leading-8 ${isAnomaly ? "bg-[var(--eg-anomaly)]/5" : ""}`}
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: -4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.1 }}
+        className="flex flex-col border-b"
+        style={{
+          borderColor: "var(--eg-border)",
+          backgroundColor: isAnomaly ? "rgba(239,68,68,0.03)" : "transparent",
+        }}
       >
-        <span className="text-[var(--eg-text-dim)]">#{item.seq}</span>
-        <span className="text-[var(--eg-text-dim)]">T{item.sourceTurbine}</span>
-        <span className="text-[var(--eg-text-bright)]">{item.value.toFixed(0)}</span>
-        <span className="font-bold" style={{ color: isAnomaly ? "var(--eg-anomaly)" : "var(--eg-ok)" }}>
-          {item.anomalyScore.toFixed(3)}
-        </span>
-        <span className={`font-bold ${isAnomaly ? "text-[var(--eg-anomaly)]" : "text-[var(--eg-ok)]"}`}>
-          {isAnomaly ? "ANOMALY" : "NORMAL"}
-        </span>
-      </div>
+        <div className="grid grid-cols-[60px_44px_1fr_80px] gap-1 px-4 py-2 items-center">
+          <span
+            className="text-[11px]"
+            style={{ color: "var(--eg-text-dim)", fontFamily: "IBM Plex Mono, monospace" }}
+          >
+            #{item.seq}
+          </span>
+          <span
+            className="text-[11px]"
+            style={{ color: "var(--eg-text-dim)", fontFamily: "IBM Plex Mono, monospace" }}
+          >
+            T{item.sourceTurbine}
+          </span>
+          <span
+            className="text-[11px] font-semibold"
+            style={{
+              color: isAnomaly ? "var(--eg-anomaly)" : "var(--eg-flow)",
+              fontFamily: "IBM Plex Mono, monospace",
+            }}
+          >
+            {item.anomalyScore.toFixed(3)}
+          </span>
+          <span
+            className="text-[10px] font-semibold uppercase"
+            style={{
+              color: isAnomaly ? "var(--eg-anomaly)" : "var(--eg-ok)",
+              fontFamily: "Outfit, sans-serif",
+              letterSpacing: "0.04em",
+            }}
+          >
+            {isAnomaly ? "Anomaly" : "Normal"}
+          </span>
+        </div>
+        {hasSensors && <SensorValuesRow sensors={item.sensors} />}
+      </motion.div>
     );
   }
 
   if (isCompactedBlock(item)) {
-    const tierColor = item.tier === 2 ? "#9b62c3" : "#7f8fd4";
+    const tierColor = item.tier === 2 ? "#9333ea" : "#7c3aed";
+    const hasSensors = item.sensors != null;
+    const scoreDisplay = item.avgAnomalyScore !== undefined
+      ? `${item.avgAnomalyScore.toFixed(3)} (${item.count}pts)`
+      : `avg (${item.count}pts)`;
+
     return (
-      <div
-        className="grid h-8 grid-cols-[50px_40px_60px_60px_60px] gap-1 border-b border-[var(--eg-border)]/40 px-2 text-[11px] font-mono leading-8"
-        style={{ backgroundColor: `${tierColor}08` }}
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: -4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.1 }}
+        className="flex flex-col border-b"
+        style={{ borderColor: "var(--eg-border)", backgroundColor: `${tierColor}08` }}
       >
-        <span className="font-bold" style={{ color: tierColor }}>[{item.range}]</span>
-        <span style={{ color: tierColor }}>T{item.tier}</span>
-        <span className="text-[var(--eg-text-bright)]">{item.avgValue?.toFixed(0) ?? "0"}</span>
-        <span className="text-[var(--eg-text-dim)]">{item.count}pts</span>
-        <span className="font-bold" style={{ color: tierColor }}>COMPACT</span>
-      </div>
+        <div className="grid grid-cols-[60px_44px_1fr_80px] gap-1 px-4 py-2 items-center">
+          <span className="text-[11px] font-semibold" style={{ color: tierColor, fontFamily: "IBM Plex Mono, monospace" }}>
+            [{item.range}]
+          </span>
+          <span className="text-[11px]" style={{ color: tierColor, fontFamily: "IBM Plex Mono, monospace" }}>
+            T{item.sourceTurbine ?? item.tier}
+          </span>
+          <span className="text-[11px] font-semibold" style={{ color: tierColor, fontFamily: "IBM Plex Mono, monospace" }}>
+            {scoreDisplay}
+          </span>
+          <span
+            className="text-[10px] font-semibold uppercase"
+            style={{ color: tierColor, fontFamily: "Outfit, sans-serif", letterSpacing: "0.04em" }}
+          >
+            Compact
+          </span>
+        </div>
+        {hasSensors && item.sensors && <SensorValuesRow sensors={item.sensors} />}
+      </motion.div>
     );
   }
 
   return null;
 }
 
-function DataTable({
-  title,
-  items,
-  count,
-}: {
-  title: string;
-  items: EdgeGuardItem[];
-  count?: number;
-}) {
-  const visible = items.slice(-MAX_ROWS).reverse();
-  const emptyRows = Math.max(0, MAX_ROWS - visible.length);
-
-  return (
-    <TableShell title={title} count={count ?? items.length}>
-      <div className="grid grid-rows-[repeat(10,minmax(0,2rem))]">
-        {visible.map((item, index) => {
-          const key = itemKey(item, items.length - 1 - index);
-          return <DataRow key={key} item={item} />;
-        })}
-        {Array.from({ length: emptyRows }, (_, index) => (
-          <div
-            key={`empty-${index}`}
-            className="grid h-8 grid-cols-[50px_40px_60px_60px_60px] gap-1 border-b border-[var(--eg-border)]/20 px-2 text-[11px] font-mono leading-8 text-transparent"
-          >
-            <span>0</span>
-            <span>0</span>
-            <span>0</span>
-            <span>0</span>
-            <span>0</span>
-          </div>
-        ))}
-      </div>
-    </TableShell>
-  );
-}
-
-export function EdgeDataTable() {
-  const edgeStorage = usePipelineStore((s) => s.edgeStorage);
-  return <DataTable title="EDGE LOGS" items={edgeStorage} />;
-}
-
-export function CentralDataTable() {
-  const centralStorage = usePipelineStore((s) => s.centralStorage);
-  const totalCentralCount = usePipelineStore((s) => s.metrics.centralStorageLength);
-  return <DataTable title="CENTRAL LOGS" items={centralStorage} count={totalCentralCount} />;
-}
+// ---------------------------------------------------------------------------
+// DataTables
+// ---------------------------------------------------------------------------
 
 export function DataTables() {
+  const edgeStorage    = usePipelineStore((s) => s.edgeStorage);
+  const centralStorage = usePipelineStore((s) => s.centralStorage);
+
+  const edgeScrollRef    = useRef<HTMLDivElement>(null);
+  const centralScrollRef = useRef<HTMLDivElement>(null);
+
+  const edgeVisible    = edgeStorage.slice(-MAX_ROWS);
+  const centralVisible = centralStorage.slice(-MAX_ROWS);
+
+  useEffect(() => {
+    if (edgeScrollRef.current) {
+      edgeScrollRef.current.scrollTop = edgeScrollRef.current.scrollHeight;
+    }
+  }, [edgeStorage.length]);
+
+  useEffect(() => {
+    if (centralScrollRef.current) {
+      centralScrollRef.current.scrollTop = centralScrollRef.current.scrollHeight;
+    }
+  }, [centralStorage.length]);
+
   return (
-    <div className="grid h-full gap-5 xl:grid-cols-2">
-      <EdgeDataTable />
-      <CentralDataTable />
-    </div>
+    <motion.div
+      className="grid grid-cols-2 gap-3 h-full min-h-0"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.3, duration: 0.4 }}
+    >
+      <TableShell title="EDGE COUCHBASE" count={edgeStorage.length} scrollRef={edgeScrollRef}>
+        {edgeVisible.map((item, i) => {
+          const key = itemKey(item, edgeStorage.length - MAX_ROWS + i);
+          return (
+            <DataRow
+              key={key}
+              item={item}
+            />
+          );
+        })}
+        {edgeStorage.length === 0 && (
+          <div
+            className="text-xs text-center py-6"
+            style={{ color: "var(--eg-text-dim)", fontFamily: "Outfit, sans-serif" }}
+          >
+            No data yet
+          </div>
+        )}
+      </TableShell>
+
+      <TableShell title="CENTRAL COUCHBASE" count={centralStorage.length} scrollRef={centralScrollRef}>
+        {centralVisible.map((item, i) => {
+          const key = itemKey(item, centralStorage.length - MAX_ROWS + i);
+          return (
+            <DataRow
+              key={key}
+              item={item}
+            />
+          );
+        })}
+        {centralStorage.length === 0 && (
+          <div
+            className="text-xs text-center py-6"
+            style={{ color: "var(--eg-text-dim)", fontFamily: "Outfit, sans-serif" }}
+          >
+            No data yet
+          </div>
+        )}
+      </TableShell>
+    </motion.div>
   );
 }

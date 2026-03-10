@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { usePipelineStore } from "~/stores/pipelineStore";
 import { edgeguardApi } from "~/lib/api";
 import type { SensorData } from "~/types/edgeguard";
 import { SENSOR_RANGES, sensorColor } from "~/types/edgeguard";
+
+// ─── Sensor bar ───────────────────────────────────────────────────────────────
 
 function SensorBar({
   label,
@@ -20,32 +21,40 @@ function SensorBar({
   max: number;
   color: string;
 }) {
-  const span = max - min;
+  const span     = max - min;
   const fraction = Math.max(0, Math.min(1, (value - min) / span));
 
   return (
-    <div className="flex flex-col gap-[2px]">
+    <div className="flex flex-col gap-[3px]">
       <div className="flex items-center justify-between">
-        <span className="font-display text-[10px] tracking-[0.04em] text-[var(--eg-text-dim)]">
+        <span
+          className="text-[10px] font-medium uppercase tracking-wide"
+          style={{ color: "var(--eg-text-dim)", fontFamily: "Outfit, sans-serif" }}
+        >
           {label}
         </span>
-        <span className="font-mono text-[11px] font-semibold" style={{ color }}>
+        <span
+          className="text-[11px] font-semibold"
+          style={{ color, fontFamily: "IBM Plex Mono, monospace" }}
+        >
           {value % 1 === 0 ? value : value.toFixed(1)}
-          <span className="ml-[2px] text-[9px] text-[var(--eg-text-dim)]">{unit}</span>
+          <span className="text-[9px] ml-[2px]" style={{ color: "var(--eg-text-dim)" }}>{unit}</span>
         </span>
       </div>
-      <div className="h-[4px] overflow-hidden rounded-full bg-[var(--eg-border)]">
+      <div className="h-[4px] rounded-full overflow-hidden" style={{ backgroundColor: "var(--eg-border)" }}>
         <motion.div
           className="h-full rounded-full"
           style={{ backgroundColor: color }}
           initial={{ width: 0 }}
           animate={{ width: `${fraction * 100}%` }}
-          transition={{ duration: 0.3, ease: "easeOut" }}
+          transition={{ duration: 0.35, ease: "easeOut" }}
         />
       </div>
     </div>
   );
 }
+
+// ─── Sensor grid (2 × 3) ──────────────────────────────────────────────────────
 
 const SENSOR_KEYS = [
   "temperature",
@@ -58,9 +67,9 @@ const SENSOR_KEYS = [
 
 function SensorGrid({ sensors }: { sensors: SensorData }) {
   return (
-    <div className="mt-2 mb-2 grid grid-cols-2 gap-x-3 gap-y-2">
+    <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 mt-2 mb-2">
       {SENSOR_KEYS.map((key) => {
-        const meta = SENSOR_RANGES[key];
+        const meta  = SENSOR_RANGES[key];
         const value = sensors[key];
         const color = sensorColor(key, value);
         return (
@@ -79,14 +88,7 @@ function SensorGrid({ sensors }: { sensors: SensorData }) {
   );
 }
 
-const ZERO_SENSORS: SensorData = {
-  temperature: 0,
-  vibration: 0,
-  rpm: 0,
-  powerOutput: 0,
-  windSpeed: 0,
-  bladePitch: 0,
-};
+// ─── TurbineCard ──────────────────────────────────────────────────────────────
 
 export function TurbineCard({
   turbineId,
@@ -95,27 +97,42 @@ export function TurbineCard({
   turbineId: number;
   delay: number;
 }) {
-  const history = usePipelineStore((s) => s.perTurbineHistory[turbineId] || []);
+  const history              = usePipelineStore((s) => s.perTurbineHistory[turbineId] || []);
   const forcedAnomalyTurbine = usePipelineStore((s) => s.forcedAnomalyTurbine);
-  const [pendingInject, setPendingInject] = useState(false);
+  const enabledTurbines      = usePipelineStore((s) => s.enabledTurbines);
+  const isEnabled            = enabledTurbines.includes(turbineId);
 
-  const lastPoint = history[history.length - 1];
-  const lastValue = lastPoint?.value ?? 0;
-  const lastScore = lastPoint?.anomalyScore ?? 0;
-  const isAnomaly = lastPoint?.type === "anomaly";
-  const showAnomalyState = isAnomaly || forcedAnomalyTurbine === turbineId || pendingInject;
-  const displaySensors = lastPoint?.sensors ?? ZERO_SENSORS;
+  const setTurbineEnabled = (enabled: boolean) => {
+    edgeguardApi.setTurbineEnabled(turbineId, enabled).catch(() => {});
+  };
 
+  const setForcedAnomalyTurbine = (id: number | null) => {
+    if (id != null) {
+      edgeguardApi.injectAnomaly(id).catch(() => {});
+    } else {
+      edgeguardApi.clearAnomaly(turbineId).catch(() => {});
+    }
+    usePipelineStore.setState({ forcedAnomalyTurbine: id });
+  };
+
+  const isActive   = forcedAnomalyTurbine === turbineId;
+  const lastPoint  = history[history.length - 1];
+  const lastValue  = lastPoint?.value ?? 0;
+  const lastScore  = lastPoint?.anomalyScore ?? 0;
+  const isAnomaly  = lastPoint?.type === "anomaly";
+  const hasSensors = lastPoint?.sensors != null;
+
+  // Sparkline
   const sparkData = history.slice(-20);
-  const maxVal = Math.max(...sparkData.map((d) => d.value), 1);
-  const minVal = Math.min(...sparkData.map((d) => d.value), 0);
-  const range = maxVal - minVal || 1;
-  const sparkWidth = 100;
-  const sparkHeight = 28;
+  const maxVal    = Math.max(...sparkData.map((d) => d.value), 1);
+  const minVal    = Math.min(...sparkData.map((d) => d.value), 0);
+  const range     = maxVal - minVal || 1;
+  const sparkW    = 100;
+  const sparkH    = 32;
   const sparkPoints = sparkData
-    .map((d, index) => {
-      const x = (index / Math.max(sparkData.length - 1, 1)) * sparkWidth;
-      const y = sparkHeight - ((d.value - minVal) / range) * sparkHeight;
+    .map((d, i) => {
+      const x = (i / Math.max(sparkData.length - 1, 1)) * sparkW;
+      const y = sparkH - ((d.value - minVal) / range) * sparkH;
       return `${x},${y}`;
     })
     .join(" ");
@@ -124,79 +141,114 @@ export function TurbineCard({
     lastScore > 0.7
       ? "var(--eg-anomaly)"
       : lastScore > 0.4
-        ? "var(--eg-alert)"
-        : "var(--eg-ok)";
-
-  useEffect(() => {
-    if (!pendingInject) return;
-    const timer = setTimeout(() => setPendingInject(false), 1600);
-    return () => clearTimeout(timer);
-  }, [pendingInject]);
+      ? "var(--eg-alert)"
+      : "var(--eg-flow)";
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ type: "spring", stiffness: 300, damping: 24, delay }}
-      className={`eg-panel p-5 transition-all duration-300 ${
-        showAnomalyState ? "glow-red-box border-[var(--eg-anomaly)]/50" : ""
-      }`}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut", delay }}
+      className={`eg-panel p-4 transition-all duration-300 ${
+        !isEnabled ? "opacity-60" : ""
+      } ${isActive ? "border-[var(--eg-anomaly)] bg-red-50/40" : ""}`}
     >
-      <div className="mb-5 flex items-center justify-between">
+      {/* Header: turbine name + ID + toggle */}
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className={`eg-led ${showAnomalyState ? "eg-led-offline" : "eg-led-online"}`} />
-          <span className="font-display text-[16px] font-semibold tracking-[0.02em] text-[var(--eg-text-bright)]">
-            TURBINE {turbineId}
+          <div
+            className={`eg-led ${
+              !isEnabled ? "" : isAnomaly ? "eg-led-offline" : "eg-led-online"
+            }`}
+            style={!isEnabled ? { backgroundColor: "var(--eg-muted)", boxShadow: "none" } : undefined}
+          />
+          <span
+            className="text-sm font-bold tracking-wide uppercase"
+            style={{ color: "var(--eg-text-bright)", fontFamily: "Outfit, sans-serif" }}
+          >
+            Turbine {turbineId}
           </span>
         </div>
-        <span className="font-mono text-[13px] text-[var(--eg-text-dim)]">T{turbineId}</span>
+        <div className="flex items-center gap-2">
+          <span
+            className="text-xs font-semibold"
+            style={{ color: "var(--eg-text-muted)", fontFamily: "IBM Plex Mono, monospace" }}
+          >
+            T{turbineId}
+          </span>
+          <button
+            type="button"
+            onClick={() => setTurbineEnabled(!isEnabled)}
+            className="text-xs px-2 py-0.5 rounded border transition-colors"
+            style={{
+              borderColor: isEnabled ? "var(--eg-border)" : "var(--eg-flow)",
+              color: isEnabled ? "var(--eg-text-dim)" : "var(--eg-flow)",
+              fontFamily: "IBM Plex Mono, monospace",
+              backgroundColor: "transparent",
+            }}
+          >
+            {isEnabled ? "ON" : "OFF"}
+          </button>
+        </div>
       </div>
 
-      <div className="mb-3">
+      {/* Sparkline */}
+      <div className="mb-2 rounded overflow-hidden" style={{ backgroundColor: "#f8fafc" }}>
         <svg
-          viewBox={`0 0 ${sparkWidth} ${sparkHeight}`}
-          className="h-7 w-full"
+          viewBox={`0 0 ${sparkW} ${sparkH}`}
+          className="w-full h-8"
           preserveAspectRatio="none"
         >
           {sparkData.length > 1 && (
             <polyline
               points={sparkPoints}
               fill="none"
-              stroke={showAnomalyState ? "var(--eg-anomaly)" : "var(--eg-flow)"}
+              stroke={isAnomaly ? "var(--eg-anomaly)" : "var(--eg-flow)"}
               strokeWidth={1.5}
               strokeLinecap="round"
               strokeLinejoin="round"
+              opacity={isEnabled ? 1 : 0.4}
             />
           )}
-          {sparkData.map((d, index) => {
-            const x = (index / Math.max(sparkData.length - 1, 1)) * sparkWidth;
-            const y = sparkHeight - ((d.value - minVal) / range) * sparkHeight;
-            return d.type === "anomaly" ? (
-              <circle key={index} cx={x} cy={y} r={2} fill="var(--eg-anomaly)" />
-            ) : null;
-          })}
+          {sparkData.map((d, i) =>
+            d.type === "anomaly" ? (
+              <circle
+                key={i}
+                cx={(i / Math.max(sparkData.length - 1, 1)) * sparkW}
+                cy={sparkH - ((d.value - minVal) / range) * sparkH}
+                r={2}
+                fill="var(--eg-anomaly)"
+              />
+            ) : null
+          )}
         </svg>
       </div>
 
-      <div className="mb-3 flex items-center justify-between text-[15px]">
+      {/* Power + Score row */}
+      <div className="flex items-baseline justify-between mb-3">
         <div>
-          <span className="text-[var(--eg-text-dim)]">POWER </span>
-          <span className="font-mono font-semibold text-[var(--eg-text-bright)]">
+          <span className="text-xs font-medium uppercase" style={{ color: "var(--eg-text-dim)", fontFamily: "Outfit, sans-serif" }}>Power </span>
+          <span className="text-base font-bold" style={{ color: "var(--eg-text-bright)", fontFamily: "IBM Plex Mono, monospace" }}>
             {lastValue.toFixed(0)}
-            <span className="ml-[2px] text-[11px] text-[var(--eg-text-dim)]">kW</span>
           </span>
+          <span className="text-xs ml-0.5" style={{ color: "var(--eg-text-dim)" }}>kW</span>
         </div>
         <div>
-          <span className="text-[var(--eg-text-dim)]">SCORE </span>
-          <span className="font-mono font-semibold" style={{ color: scoreColor }}>
+          <span className="text-xs font-medium uppercase" style={{ color: "var(--eg-text-dim)", fontFamily: "Outfit, sans-serif" }}>Score </span>
+          <span className="text-base font-bold" style={{ color: scoreColor, fontFamily: "IBM Plex Mono, monospace" }}>
             {lastScore.toFixed(3)}
           </span>
         </div>
       </div>
 
-      <SensorGrid sensors={displaySensors} />
+      {/* Sensor grid */}
+      {hasSensors && <SensorGrid sensors={lastPoint.sensors} />}
 
-      <div className="mb-4 h-2 overflow-hidden rounded-full bg-[var(--eg-border)]">
+      {/* Anomaly score bar */}
+      <div
+        className="h-1.5 rounded-full overflow-hidden mb-3"
+        style={{ backgroundColor: "var(--eg-border)" }}
+      >
         <motion.div
           className="h-full rounded-full"
           style={{ backgroundColor: scoreColor }}
@@ -205,19 +257,27 @@ export function TurbineCard({
         />
       </div>
 
+      {/* Inject button */}
       <button
-        onClick={() => {
-          setPendingInject(true);
-          usePipelineStore.setState({ forcedAnomalyTurbine: turbineId });
-          edgeguardApi.injectAnomaly(turbineId).catch(() => {});
+        onClick={() => isEnabled && setForcedAnomalyTurbine(isActive ? null : turbineId)}
+        disabled={!isEnabled}
+        className="w-full py-2 rounded text-xs font-semibold uppercase tracking-wider transition-all duration-200"
+        style={{
+          fontFamily: "Outfit, sans-serif",
+          letterSpacing: "0.08em",
+          backgroundColor: isActive ? "rgba(239,68,68,0.06)" : "transparent",
+          border: isActive
+            ? "1px solid var(--eg-anomaly)"
+            : "1px solid var(--eg-border)",
+          color: !isEnabled
+            ? "var(--eg-muted)"
+            : isActive
+            ? "var(--eg-anomaly)"
+            : "var(--eg-text-dim)",
+          cursor: !isEnabled ? "not-allowed" : "pointer",
         }}
-        className={`w-full rounded-xl py-3 text-[13px] font-display font-semibold tracking-[0.02em] transition-all duration-200 ${
-          showAnomalyState
-            ? "border border-[var(--eg-anomaly)] bg-[var(--eg-anomaly)] text-white"
-            : "border border-[var(--eg-border)] bg-[#f7f9fc] text-[var(--eg-text)] hover:border-[var(--eg-flow)]/50 hover:text-[var(--eg-flow)]"
-        }`}
       >
-        INJECT ANOMALY
+        {isActive ? "Burst Active" : "Inject Anomaly"}
       </button>
     </motion.div>
   );

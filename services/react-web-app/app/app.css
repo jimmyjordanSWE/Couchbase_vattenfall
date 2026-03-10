@@ -4,15 +4,16 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: "IBM Plex Sans", "Segoe UI", ui-sans-serif, system-ui, sans-serif,
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
 html,
 body {
-  background-color: #f6f8fb;
+  background-color: #f0f4f8;
   color-scheme: light;
-  font-size: 16px;
+  font-family: "Outfit", ui-sans-serif, system-ui, sans-serif;
 }
 
 @theme inline {
@@ -125,147 +126,139 @@ body {
 }
 
 /* ================================================================
-   EDGEGUARD - Vattenfall inspired light product theme
+   EDGEGUARD COMMAND CENTER - Industrial Sci-Fi Theme
    ================================================================ */
 
-.edgeguard-demo {
-  --eg-bg: #f6f8fb;
-  --eg-surface: #ffffff;
-  --eg-panel: rgba(255, 255, 255, 0.96);
-  --eg-border: #d8e0e8;
-  --eg-border-bright: #c2cfda;
-  --eg-muted: #8a949d;
-  --eg-flow: #2071b5;
-  --eg-flow-dim: rgba(32, 113, 181, 0.18);
-  --eg-flow-glow: rgba(32, 113, 181, 0.08);
-  --eg-alert: #ffda00;
-  --eg-anomaly: #f93b18;
-  --eg-anomaly-dim: rgba(249, 59, 24, 0.22);
-  --eg-ok: #3dc07c;
-  --eg-ok-dim: rgba(61, 192, 124, 0.14);
-  --eg-text: #1e324f;
-  --eg-text-dim: #4e4b48;
-  --eg-text-bright: #1e324f;
+/* ============================================================
+   VATTENFALL EDGEGUARD — Light Corporate Theme
+   All --eg-* variables remapped to Vattenfall brand palette
+   ============================================================ */
+
+.vattenfall-demo {
+  /* Backgrounds */
+  --eg-bg:           #f0f4f8;
+  --eg-surface:      #ffffff;
+  --eg-panel:        #ffffff;
+
+  /* Borders */
+  --eg-border:       #e2e8f0;
+  --eg-border-bright:#cbd5e1;
+  --eg-muted:        #94a3b8;
+
+  /* Primary: Vattenfall Blue */
+  --eg-flow:         #0087cd;
+  --eg-flow-dim:     rgba(0, 135, 205, 0.18);
+  --eg-flow-glow:    rgba(0, 135, 205, 0.07);
+
+  /* States */
+  --eg-alert:        #f59e0b;
+  --eg-anomaly:      #ef4444;
+  --eg-anomaly-dim:  rgba(239, 68, 68, 0.15);
+  --eg-ok:           #22c55e;
+  --eg-ok-dim:       rgba(34, 197, 94, 0.15);
+
+  /* Typography */
+  --eg-text:         #334155;
+  --eg-text-dim:     #64748b;
+  --eg-text-bright:  #0f172a;
+
   --eg-pressure: 0;
-  font-family: "IBM Plex Sans", "Segoe UI", ui-sans-serif, sans-serif;
+  font-family: "Outfit", ui-sans-serif, sans-serif;
   font-weight: 400;
-  line-height: 1.4;
 }
 
-.edgeguard-demo .font-display {
-  font-family: "IBM Plex Sans", "Segoe UI", ui-sans-serif, sans-serif;
+/* Override font-display: use Outfit semibold instead of Orbitron */
+.vattenfall-demo .font-display {
+  font-family: "Outfit", ui-sans-serif, sans-serif;
+  letter-spacing: 0.02em;
 }
 
-.edgeguard-demo .font-mono {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+/* Override font-mono: use IBM Plex Mono */
+.vattenfall-demo .font-mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
 }
 
-/* Glow utility classes */
-.glow-cyan {
-  filter: drop-shadow(0 0 6px var(--eg-flow)) drop-shadow(0 0 20px var(--eg-flow-dim));
-}
+/* Shadow utilities replace glow utilities */
+.glow-cyan,
 .glow-cyan-box {
-  box-shadow: 0 6px 24px rgba(30, 50, 79, 0.08);
+  box-shadow: 0 0 0 1px rgba(0, 135, 205, 0.2), 0 2px 8px rgba(0, 135, 205, 0.12);
 }
-.glow-red {
-  filter: drop-shadow(0 0 6px var(--eg-anomaly)) drop-shadow(0 0 20px var(--eg-anomaly-dim));
-}
+.glow-red,
 .glow-red-box {
-  box-shadow: 0 6px 24px rgba(249, 59, 24, 0.08);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2), 0 2px 8px rgba(239, 68, 68, 0.10);
 }
 .glow-amber-box {
-  box-shadow: 0 6px 24px rgba(255, 218, 0, 0.16);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.2), 0 2px 8px rgba(245, 158, 11, 0.10);
 }
 .glow-green-box {
-  box-shadow: 0 6px 24px rgba(61, 192, 124, 0.12);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.2), 0 2px 8px rgba(34, 197, 94, 0.10);
 }
 
-/* Background */
-.edgeguard-demo.demo-bg {
+/* Page background — clean light */
+.vattenfall-demo.demo-bg {
   background-color: var(--eg-bg);
   position: relative;
-  overflow: hidden;
 }
 
-.edgeguard-demo.demo-bg::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(246, 248, 251, 0.98));
-  pointer-events: none;
-  z-index: 0;
+/* Remove dark atmospheric pseudo-elements */
+.vattenfall-demo.demo-bg::before,
+.vattenfall-demo.demo-bg::after {
+  content: none;
 }
 
-.edgeguard-demo.demo-bg::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(90deg, rgba(32, 113, 181, 0.04) 1px, transparent 1px),
-    linear-gradient(rgba(32, 113, 181, 0.04) 1px, transparent 1px);
-  background-size: 32px 32px;
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* Soft product-shell atmosphere */
+/* Remove scanline atmosphere */
 .eg-atmosphere::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 18%);
-  pointer-events: none;
-  z-index: 1;
+  content: none;
 }
 
-/* Panel cards */
-.edgeguard-demo .eg-panel {
+/* Panel cards — clean white with subtle shadow */
+.vattenfall-demo .eg-panel {
   background: var(--eg-panel);
   border: 1px solid var(--eg-border);
-  border-radius: 16px;
-  box-shadow: 0 10px 34px rgba(30, 50, 79, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
-.edgeguard-demo .eg-panel-glow {
-  box-shadow: 0 10px 34px rgba(30, 50, 79, 0.08);
+.vattenfall-demo .eg-panel-glow {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px var(--eg-flow-dim);
 }
 
-.edgeguard-demo .eg-label {
-  font-family: "IBM Plex Sans", "Segoe UI", ui-sans-serif, sans-serif;
-  font-size: 0.6rem;
+/* Section labels */
+.vattenfall-demo .eg-label {
+  font-family: "Outfit", ui-sans-serif, sans-serif;
+  font-size: 0.65rem;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--eg-text-dim);
 }
 
 /* LED indicators */
 .eg-led {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 .eg-led-online {
   background: var(--eg-ok);
-  box-shadow: none;
-  animation: led-pulse 2s ease-in-out infinite;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+  animation: led-pulse 2.5s ease-in-out infinite;
 }
 .eg-led-offline {
   background: var(--eg-anomaly);
-  box-shadow: none;
-  animation: led-pulse-fast 0.8s ease-in-out infinite;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+  animation: led-pulse-fast 1s ease-in-out infinite;
 }
 
 @keyframes led-pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  50% { opacity: 0.65; }
 }
 
 @keyframes led-pulse-fast {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  50% { opacity: 0.45; }
 }
 
 /* Pipe flow animation */
@@ -295,7 +288,7 @@ body {
   animation: turbine-spin 1s linear infinite;
 }
 
-/* Shake */
+/* Shake for anomaly events */
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   20% { transform: translateX(-3px); }
@@ -310,7 +303,7 @@ body {
 /* Pressure border pulse */
 @keyframes pressure-pulse {
   0%, 100% { border-color: var(--eg-border); }
-  50% { border-color: var(--eg-anomaly); }
+  50% { border-color: var(--eg-alert); }
 }
 .eg-pressure-border {
   animation: pressure-pulse 1.5s ease-in-out infinite;
@@ -318,29 +311,26 @@ body {
 
 /* Compaction flash */
 @keyframes compaction-flash {
-  0% { opacity: 0.4; }
+  0% { opacity: 0.3; }
   100% { opacity: 0; }
 }
 
-/* Particle trail */
-@keyframes particle-glow {
-  0%, 100% { opacity: 0.8; }
-  50% { opacity: 1; }
+/* AI chip pulse */
+@keyframes ai-pulse {
+  0%, 100% { opacity: 0.08; }
+  50% { opacity: 0.18; }
+}
+.ai-pulse {
+  animation: ai-pulse 3.5s ease-in-out infinite;
 }
 
-/* Entry animation for panels */
+/* Entry animation */
 @keyframes slide-up-fade {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .eg-enter {
-  animation: slide-up-fade 0.5s ease-out both;
+  animation: slide-up-fade 0.4s ease-out both;
 }
 
 /* Valve rotation */
@@ -353,61 +343,41 @@ body {
   to { transform: rotate(0deg); }
 }
 
-/* Status banner flash */
+/* Banner flash */
 @keyframes banner-flash {
-  0%, 100% { opacity: 0.9; }
+  0%, 100% { opacity: 0.95; }
   50% { opacity: 1; }
 }
 
-/* Wave animation for buffer fluid surface */
+/* Wave animation for buffer fluid */
 @keyframes wave {
   0% { d: path("M0,0 Q15,-3 30,0 Q45,3 60,0"); }
   50% { d: path("M0,0 Q15,3 30,0 Q45,-3 60,0"); }
   100% { d: path("M0,0 Q15,-3 30,0 Q45,3 60,0"); }
 }
 
-/* Number counter tick */
-@keyframes count-up {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* AI chip subtle glow pulse */
-@keyframes ai-pulse {
-  0%, 100% { opacity: 0.1; }
-  50% { opacity: 0.25; }
-}
-.ai-pulse {
-  animation: ai-pulse 3.5s ease-in-out infinite;
-}
-
-/* Sparkline fade */
-.eg-sparkline line {
-  stroke-linecap: round;
-}
-
-/* Capacity bar animations */
+/* Capacity bar transitions */
 .eg-capacity-bar {
   transition: width 0.4s ease-out, background-color 0.6s ease;
 }
 
-/* Scrollbar styling for edge panels */
-.edgeguard-demo ::-webkit-scrollbar,
+/* Scrollbar styling for panels */
+.vattenfall-demo ::-webkit-scrollbar,
 .eg-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
-.edgeguard-demo ::-webkit-scrollbar-track,
+.vattenfall-demo ::-webkit-scrollbar-track,
 .eg-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
-.edgeguard-demo ::-webkit-scrollbar-thumb,
+.vattenfall-demo ::-webkit-scrollbar-thumb,
 .eg-scrollbar::-webkit-scrollbar-thumb {
-  background: var(--eg-muted);
+  background: var(--eg-border-bright);
   border-radius: 4px;
 }
 .eg-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: var(--eg-muted) transparent;
+  scrollbar-color: var(--eg-border-bright) transparent;
 }
 
 @layer base {

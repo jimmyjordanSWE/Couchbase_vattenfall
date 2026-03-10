@@ -1,15 +1,13 @@
-import { memo, useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Plane } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { motion, AnimatePresence, animate } from "framer-motion";
 import { usePipelineStore } from "~/stores/pipelineStore";
 import { COMPACTION_THRESHOLD, EDGE_CAPACITY } from "~/stores/pipelineStore";
 import { edgeguardApi } from "~/lib/api";
-import { BufferTank } from "~/components/pipeline/BufferTank";
-import { PacketLayer } from "~/components/pipeline/PacketLayer";
 import {
   BRAIN_X,
   BUFFER_X,
   CENTRAL_X,
+  packetPosition,
   PIPE_END_X,
   PIPE_PATH_LEFT,
   PIPE_PATH_RIGHT,
@@ -18,12 +16,17 @@ import {
   TURBINE_POSITIONS,
   VALVE_X,
 } from "~/components/pipeline/pipelineGeometry";
-import { isDataPoint } from "~/types/edgeguard";
+import { isCompactedBlock, isDataPoint } from "~/types/edgeguard";
 
 const VIEW = { width: 1100, height: 350 };
 
+/** Progress along "to-buffer" at which the packet passes the Edge AI chip (turns red when anomaly). */
+const BRAIN_PROGRESS = (BRAIN_X - PIPE_START_X) / (BUFFER_X - PIPE_START_X);
+
 /** Degrees per second when spinning (normal). ~2.5s per full revolution. */
 const BLADE_SPIN_SPEED = 360 / 2.5;
+/** Duration of coast-down when turbine is switched off (seconds). */
+const COAST_DURATION = 2.2;
 
 function TurbineGlyph({
   x,
@@ -52,7 +55,51 @@ function TurbineGlyph({
       : "var(--eg-flow)";
   const hubColor = dormant ? "var(--eg-muted)" : active ? "var(--eg-anomaly)" : "var(--eg-flow)";
 
+  const [rotation, setRotation] = useState(0);
+  const [coasting, setCoasting] = useState(false);
+  const prevEnabledRef = useRef(enabled);
+  const rafRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number>(0);
+
   const spinning = isRunning && enabled;
+
+  // Spin loop: only when enabled and running
+  useEffect(() => {
+    if (!spinning) return;
+    setCoasting(false);
+    lastTimeRef.current = performance.now();
+    const tick = (now: number) => {
+      const delta = (now - lastTimeRef.current) / 1000;
+      lastTimeRef.current = now;
+      setRotation((r) => (r + BLADE_SPIN_SPEED * delta) % 360);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [spinning]);
+
+  // When switched off after being on: coast down to standstill
+  useEffect(() => {
+    if (enabled) {
+      prevEnabledRef.current = true;
+      return;
+    }
+    if (prevEnabledRef.current && isRunning) {
+      prevEnabledRef.current = false;
+      setCoasting(true);
+      const start = rotation;
+      const controls = animate(start, start + 360, {
+        duration: COAST_DURATION,
+        ease: "easeOut",
+        onUpdate: (v) => setRotation(v),
+        onComplete: () => setCoasting(false),
+      });
+      return () => controls.stop();
+    }
+    prevEnabledRef.current = false;
+  }, [enabled, isRunning]);
 
   const showBeam = isRunning && enabled;
 
@@ -110,21 +157,11 @@ function TurbineGlyph({
         </circle>
       )}
 
-      {/* Blades use SVG-native rotation to avoid per-frame React state updates. */}
-      <g transform={`rotate(0 ${x} ${hubY})`}>
-        {spinning && (
-          <animateTransform
-            attributeName="transform"
-            type="rotate"
-            from={`0 ${x} ${hubY}`}
-            to={`360 ${x} ${hubY}`}
-            dur={`${360 / BLADE_SPIN_SPEED}s`}
-            repeatCount="indefinite"
-          />
-        )}
-        <line x1={x} y1={hubY} x2={x} y2={hubY - 26} stroke={bladeColor} strokeWidth={2.5} strokeLinecap="round" opacity={dormant ? 0.3 : 1} />
-        <line x1={x} y1={hubY} x2={x - 22} y2={hubY + 14} stroke={bladeColor} strokeWidth={2.5} strokeLinecap="round" opacity={dormant ? 0.3 : 1} />
-        <line x1={x} y1={hubY} x2={x + 22} y2={hubY + 14} stroke={bladeColor} strokeWidth={2.5} strokeLinecap="round" opacity={dormant ? 0.3 : 1} />
+      {/* Blades: rotate only when spinning or coasting; when off, show at rest */}
+      <g transform={`rotate(${rotation} ${x} ${hubY})`}>
+        <line x1={x} y1={hubY} x2={x} y2={hubY - 26} stroke={bladeColor} strokeWidth={2.5} strokeLinecap="round" opacity={dormant && !coasting ? 0.3 : 1} />
+        <line x1={x} y1={hubY} x2={x - 22} y2={hubY + 14} stroke={bladeColor} strokeWidth={2.5} strokeLinecap="round" opacity={dormant && !coasting ? 0.3 : 1} />
+        <line x1={x} y1={hubY} x2={x + 22} y2={hubY + 14} stroke={bladeColor} strokeWidth={2.5} strokeLinecap="round" opacity={dormant && !coasting ? 0.3 : 1} />
       </g>
 
       {/* Data beam from turbine to pipe — only when turbine is on */}
@@ -149,13 +186,22 @@ function TurbineGlyph({
         fill={dormant ? "var(--eg-muted)" : active ? "var(--eg-anomaly)" : "var(--eg-text-dim)"}
         fontSize="10"
         fontWeight="700"
-        fontFamily="Orbitron, sans-serif"
+        fontFamily="Outfit, sans-serif"
         opacity={dormant ? 0.4 : 1}
       >
         {label}
       </text>
     </g>
   );
+}
+
+function packetEntryPosition(sourceTurbine: number, progress: number): { x: number; y: number } {
+  const pos = TURBINE_POSITIONS[Math.max(0, Math.min(2, sourceTurbine - 1))];
+  const normalized = Math.min(progress / 0.22, 1);
+  return {
+    x: pos.x + (PIPE_START_X - pos.x) * normalized,
+    y: pos.y + (PIPE_Y - pos.y) * normalized,
+  };
 }
 
 function AIChipNode({ x, y, isActive, isRunning }: { x: number; y: number; isActive: boolean; isRunning: boolean }) {
@@ -212,24 +258,140 @@ function AIChipNode({ x, y, isActive, isRunning }: { x: number; y: number; isAct
       </g>
 
       {/* Labels */}
-      <text x={0} y={s + 16} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : "var(--eg-text-dim)"} fontSize="8" fontWeight="600" fontFamily="Orbitron, sans-serif" letterSpacing="0.1em">
+      <text x={0} y={s + 16} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : "var(--eg-text-dim)"} fontSize="8" fontWeight="600" fontFamily="Outfit, sans-serif" letterSpacing="0.1em">
         EDGE AI
       </text>
-      <text x={0} y={s + 26} textAnchor="middle" fill={color} fontSize="7" fontWeight="500" fontFamily="Orbitron, sans-serif" opacity={0.6} letterSpacing="0.05em">
+      <text x={0} y={s + 26} textAnchor="middle" fill={color} fontSize="7" fontWeight="500" fontFamily="Outfit, sans-serif" opacity={0.6} letterSpacing="0.05em">
         ISOLATION FOREST
       </text>
     </g>
   );
 }
 
-const EdgeAIChip = memo(function EdgeAIChip({ isRunning }: { isRunning: boolean }) {
-  const packetsInTransit = usePipelineStore((s) => s.packetsInTransit);
-  const brainActive = useMemo(() => {
-    return packetsInTransit.some((p) => p.segment === "to-buffer");
-  }, [packetsInTransit]);
+function BufferTank({ x, y, ratio, inCompactionZone, compactionFlash, isRunning }: {
+  x: number;
+  y: number;
+  ratio: number;
+  inCompactionZone: boolean;
+  compactionFlash: boolean;
+  isRunning: boolean;
+}) {
+  const tankH = 120;
+  const tankW = 70;
+  const fluidH = ratio * (tankH - 8);
+  const dormant = !isRunning;
+  const fluidColor = dormant
+    ? "var(--eg-muted)"
+    : inCompactionZone
+      ? "var(--eg-anomaly)"
+      : ratio > 0.6
+        ? "var(--eg-alert)"
+        : "var(--eg-flow)";
 
-  return <AIChipNode x={BRAIN_X} y={PIPE_Y} isActive={brainActive} isRunning={isRunning} />;
-});
+  return (
+    <g transform={`translate(${x}, ${y})`} opacity={dormant ? 0.4 : 1}>
+      {/* Tank outline */}
+      <rect
+        x={-tankW / 2}
+        y={-tankH / 2}
+        width={tankW}
+        height={tankH}
+        rx={6}
+        fill="var(--eg-bg)"
+        stroke={dormant ? "var(--eg-muted)" : inCompactionZone ? "var(--eg-anomaly)" : "var(--eg-border-bright)"}
+        strokeWidth={1.5}
+      />
+
+      {/* Capacity markings */}
+      {[0.25, 0.5, 0.75].map((mark) => (
+        <g key={mark}>
+          <line
+            x1={-tankW / 2 + 2}
+            y1={tankH / 2 - 4 - mark * (tankH - 8)}
+            x2={-tankW / 2 + 8}
+            y2={tankH / 2 - 4 - mark * (tankH - 8)}
+            stroke="var(--eg-muted)"
+            strokeWidth={0.5}
+          />
+          <text
+            x={-tankW / 2 + 10}
+            y={tankH / 2 - 4 - mark * (tankH - 8) + 3}
+            fill="var(--eg-muted)"
+            fontSize="6"
+            fontFamily="IBM Plex Mono, monospace"
+          >
+            {Math.round(mark * 100)}%
+          </text>
+        </g>
+      ))}
+
+      {/* Fluid fill */}
+      <defs>
+        <linearGradient id="buffer-fluid" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor={fluidColor} stopOpacity="0.85" />
+          <stop offset="100%" stopColor={fluidColor} stopOpacity="0.3" />
+        </linearGradient>
+        <clipPath id="tank-clip">
+          <rect x={-tankW / 2 + 2} y={-tankH / 2 + 2} width={tankW - 4} height={tankH - 4} rx={5} />
+        </clipPath>
+      </defs>
+
+      <g clipPath="url(#tank-clip)">
+        <rect
+          x={-tankW / 2 + 2}
+          y={tankH / 2 - 2 - fluidH}
+          width={tankW - 4}
+          height={fluidH}
+          fill="url(#buffer-fluid)"
+        />
+        {fluidH > 2 && isRunning && (
+          <path
+            d={`M ${-tankW / 2 + 2} ${tankH / 2 - 2 - fluidH} Q ${-tankW / 4} ${tankH / 2 - 2 - fluidH - 3} 0 ${tankH / 2 - 2 - fluidH} Q ${tankW / 4} ${tankH / 2 - 2 - fluidH + 3} ${tankW / 2 - 2} ${tankH / 2 - 2 - fluidH}`}
+            fill={fluidColor}
+            opacity={0.4}
+          >
+            <animate
+              attributeName="d"
+              values={`M ${-tankW / 2 + 2} ${tankH / 2 - 2 - fluidH} Q ${-tankW / 4} ${tankH / 2 - 2 - fluidH - 3} 0 ${tankH / 2 - 2 - fluidH} Q ${tankW / 4} ${tankH / 2 - 2 - fluidH + 3} ${tankW / 2 - 2} ${tankH / 2 - 2 - fluidH};M ${-tankW / 2 + 2} ${tankH / 2 - 2 - fluidH} Q ${-tankW / 4} ${tankH / 2 - 2 - fluidH + 3} 0 ${tankH / 2 - 2 - fluidH} Q ${tankW / 4} ${tankH / 2 - 2 - fluidH - 3} ${tankW / 2 - 2} ${tankH / 2 - 2 - fluidH};M ${-tankW / 2 + 2} ${tankH / 2 - 2 - fluidH} Q ${-tankW / 4} ${tankH / 2 - 2 - fluidH - 3} 0 ${tankH / 2 - 2 - fluidH} Q ${tankW / 4} ${tankH / 2 - 2 - fluidH + 3} ${tankW / 2 - 2} ${tankH / 2 - 2 - fluidH}`}
+              dur="2s"
+              repeatCount="indefinite"
+            />
+          </path>
+        )}
+      </g>
+
+      {/* Compaction flash overlay */}
+      {compactionFlash && (
+        <rect
+          x={-tankW / 2}
+          y={-tankH / 2}
+          width={tankW}
+          height={tankH}
+          rx={6}
+          fill="var(--eg-flow)"
+          opacity={0.25}
+        >
+          <animate attributeName="opacity" values="0.3;0" dur="0.5s" fill="freeze" />
+        </rect>
+      )}
+
+      {/* DB icon inside tank */}
+      <g transform="translate(0, -48)">
+        <ellipse cx={0} cy={0} rx={10} ry={3} fill="none" stroke={dormant ? "var(--eg-muted)" : "var(--eg-flow)"} strokeWidth={0.6} opacity={0.4} />
+        <rect x={-10} y={0} width={20} height={10} fill="none" stroke={dormant ? "var(--eg-muted)" : "var(--eg-flow)"} strokeWidth={0.6} opacity={0.3} />
+        <ellipse cx={0} cy={10} rx={10} ry={3} fill="none" stroke={dormant ? "var(--eg-muted)" : "var(--eg-flow)"} strokeWidth={0.6} opacity={0.4} />
+      </g>
+
+      {/* Labels */}
+      <text x={0} y={tankH / 2 + 16} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : inCompactionZone ? "var(--eg-anomaly)" : "var(--eg-text-dim)"} fontSize="8" fontWeight="600" fontFamily="Outfit, sans-serif" letterSpacing="0.1em">
+        EDGE COUCHBASE
+      </text>
+      <text x={0} y={tankH / 2 + 28} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : inCompactionZone ? "var(--eg-anomaly)" : "var(--eg-flow)"} fontSize="9" fontWeight="700" fontFamily="IBM Plex Mono, monospace">
+        {Math.round(ratio * 100)}%
+      </text>
+    </g>
+  );
+}
 
 function ValveNode({ x, y, isOnline, isRunning, onToggle }: {
   x: number;
@@ -308,24 +470,23 @@ function ValveNode({ x, y, isOnline, isRunning, onToggle }: {
       )}
 
       {/* Label */}
-      <text x={0} y={40} textAnchor="middle" fill={color} fontSize="8" fontWeight="700" fontFamily="Orbitron, sans-serif" letterSpacing="0.1em">
+      <text x={0} y={40} textAnchor="middle" fill={color} fontSize="8" fontWeight="700" fontFamily="Outfit, sans-serif" letterSpacing="0.1em">
         {dormant ? "STANDBY" : isOnline ? "VALVE OPEN" : "VALVE SHUT"}
       </text>
     </g>
   );
 }
 
-function CentralDBNode({ x, y, count, isOnline, isRunning, isMeshGatewayActive = false }: {
+function CentralDBNode({ x, y, count, isOnline, isRunning }: {
   x: number;
   y: number;
   count: number;
   isOnline: boolean;
   isRunning: boolean;
-  isMeshGatewayActive?: boolean;
 }) {
   const dormant = !isRunning;
-  const color = dormant ? "var(--eg-muted)" : isOnline || isMeshGatewayActive ? "var(--eg-flow)" : "var(--eg-muted)";
-  const opacity = dormant ? 0.35 : isOnline || isMeshGatewayActive ? 1 : 0.4;
+  const color = dormant ? "var(--eg-muted)" : isOnline ? "var(--eg-flow)" : "var(--eg-muted)";
+  const opacity = dormant ? 0.35 : isOnline ? 1 : 0.4;
 
   return (
     <g transform={`translate(${x}, ${y})`} opacity={opacity}>
@@ -340,24 +501,24 @@ function CentralDBNode({ x, y, count, isOnline, isRunning, isMeshGatewayActive =
       <line x1={-20} y1={16} x2={20} y2={16} stroke={color} opacity={0.4} strokeWidth={0.6} />
 
       {/* Count */}
-      <text x={0} y={2} textAnchor="middle" fill={color} fontSize="14" fontWeight="700" fontFamily="JetBrains Mono, monospace">
+      <text x={0} y={2} textAnchor="middle" fill={color} fontSize="14" fontWeight="700" fontFamily="IBM Plex Mono, monospace">
         {count}
       </text>
 
       {/* Active glow */}
-      {(isOnline || isMeshGatewayActive) && isRunning && (
+      {isOnline && isRunning && (
         <ellipse cx={0} cy={0} rx={36} ry={28} fill="none" stroke="var(--eg-flow)" strokeWidth={0.5} opacity={0.15}>
           <animate attributeName="opacity" values="0.08;0.2;0.08" dur="3s" repeatCount="indefinite" />
         </ellipse>
       )}
 
       {/* Labels */}
-      <text x={0} y={48} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : isOnline || isMeshGatewayActive ? "var(--eg-text-dim)" : "var(--eg-muted)"} fontSize="8" fontWeight="600" fontFamily="Orbitron, sans-serif" letterSpacing="0.1em">
+      <text x={0} y={48} textAnchor="middle" fill={dormant ? "var(--eg-muted)" : isOnline ? "var(--eg-text-dim)" : "var(--eg-muted)"} fontSize="8" fontWeight="600" fontFamily="Outfit, sans-serif" letterSpacing="0.1em">
         CENTRAL DB
       </text>
       {!isOnline && isRunning && (
-        <text x={0} y={60} textAnchor="middle" fill={isMeshGatewayActive ? "var(--eg-flow)" : "var(--eg-anomaly)"} fontSize="7" fontWeight="700" fontFamily="Orbitron, sans-serif" opacity={0.8}>
-          {isMeshGatewayActive ? "MESH LINK" : "UNREACHABLE"}
+        <text x={0} y={60} textAnchor="middle" fill="var(--eg-anomaly)" fontSize="7" fontWeight="700" fontFamily="Outfit, sans-serif" opacity={0.8}>
+          UNREACHABLE
         </text>
       )}
     </g>
@@ -365,6 +526,7 @@ function CentralDBNode({ x, y, count, isOnline, isRunning, isMeshGatewayActive =
 }
 
 export function PipelineView() {
+  const packetsInTransit = usePipelineStore((s) => s.packetsInTransit);
   const edgeStorage = usePipelineStore((s) => s.edgeStorage);
   const centralStorage = usePipelineStore((s) => s.centralStorage);
   const isOnline = usePipelineStore((s) => s.isOnline);
@@ -373,44 +535,17 @@ export function PipelineView() {
   const enabledTurbines = usePipelineStore((s) => s.enabledTurbines);
   const compactionCount = usePipelineStore((s) => s.compactionCount);
   const edgePressure = usePipelineStore((s) => s.edgePressure);
-  const isMeshGatewayActive = usePipelineStore((s) => s.meshGatewayOverride ?? s.status.isMeshGatewayActive ?? false);
-  const [pendingAnomalyTurbine, setPendingAnomalyTurbine] = useState<number | null>(null);
-  const pendingAnomalyPosition = useMemo(() => {
-    if (pendingAnomalyTurbine == null) return null;
-    const pos = TURBINE_POSITIONS[Math.max(0, Math.min(2, pendingAnomalyTurbine - 1))];
-    return {
-      start: { x: pos.x, y: pos.y + 4 },
-      via: { x: PIPE_START_X, y: PIPE_Y },
-      end: { x: BUFFER_X - 6, y: PIPE_Y },
-    };
-  }, [pendingAnomalyTurbine]);
   const setOnline = (online: boolean) => {
     edgeguardApi.setConnection(online).catch(() => {});
   };
   const setForcedAnomalyTurbine = (id: number | null) => {
     if (id != null) {
-      setPendingAnomalyTurbine(id);
       edgeguardApi.injectAnomaly(id).catch(() => {});
     } else if (forcedAnomalyTurbine != null) {
       edgeguardApi.clearAnomaly(forcedAnomalyTurbine).catch(() => {});
-      setPendingAnomalyTurbine(null);
     }
     usePipelineStore.setState({ forcedAnomalyTurbine: id });
   };
-
-  useEffect(() => {
-    if (pendingAnomalyTurbine == null) return;
-    const timer = setTimeout(() => setPendingAnomalyTurbine(null), 1600);
-    return () => clearTimeout(timer);
-  }, [pendingAnomalyTurbine]);
-
-  useEffect(() => {
-    if (forcedAnomalyTurbine == null) return;
-    const timer = setTimeout(() => {
-      usePipelineStore.setState({ forcedAnomalyTurbine: null });
-    }, 8500);
-    return () => clearTimeout(timer);
-  }, [forcedAnomalyTurbine]);
 
   const [compactionFlash, setCompactionFlash] = useState(false);
   useEffect(() => {
@@ -423,9 +558,31 @@ export function PipelineView() {
   const bufferRatio = Math.min(1, edgeStorage.length / EDGE_CAPACITY);
   const inCompactionZone = bufferRatio >= COMPACTION_THRESHOLD / EDGE_CAPACITY;
 
+  const brainActive = useMemo(() => {
+    return packetsInTransit.some(
+      (p) => p.segment === "to-buffer" && p.progress >= 0.22 && p.progress <= 0.55
+    );
+  }, [packetsInTransit]);
+
   return (
     <div className="w-full">
-      <div className="relative rounded-xl border border-[var(--eg-border)] bg-[var(--eg-panel)] overflow-hidden shadow-[0_8px_60px_rgba(0,0,0,0.6)]">
+      <div className="relative rounded-xl border border-[var(--eg-border)] bg-[var(--eg-surface)] overflow-hidden" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+        {/* Status banner */}
+        <AnimatePresence>
+          {!isOnline && isRunning && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-red-50 border-b border-red-200 px-4 py-1.5 text-center"
+            >
+              <span className="text-xs font-semibold tracking-wide text-red-600" style={{ fontFamily: "Outfit, sans-serif" }}>
+                NETWORK DISCONNECTED — EDGE ISOLATION MODE
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <svg
           viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
           className="w-full h-auto block"
@@ -449,14 +606,14 @@ export function PipelineView() {
             </linearGradient>
 
             <filter id="glow-cyan" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
+              <feGaussianBlur stdDeviation="1.5" result="blur" />
               <feMerge>
                 <feMergeNode in="blur" />
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
             <filter id="glow-red" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="4" result="blur" />
+              <feGaussianBlur stdDeviation="2" result="blur" />
               <feMerge>
                 <feMergeNode in="blur" />
                 <feMergeNode in="SourceGraphic" />
@@ -483,13 +640,12 @@ export function PipelineView() {
             <path
               d={PIPE_PATH_RIGHT}
               fill="none"
-              stroke={isMeshGatewayActive ? "var(--eg-border)" : isOnline ? "url(#pipe-glow-right-on)" : "url(#pipe-glow-right-off)"}
+              stroke={isOnline ? "url(#pipe-glow-right-on)" : "url(#pipe-glow-right-off)"}
               strokeWidth={10}
               strokeLinecap="round"
-              opacity={isMeshGatewayActive ? 0.18 : 1}
             />
           )}
-          {isOnline && isRunning && !isMeshGatewayActive && (
+          {isOnline && isRunning && (
             <path
               d={PIPE_PATH_RIGHT}
               fill="none"
@@ -503,130 +659,48 @@ export function PipelineView() {
           {/* Section labels */}
           {isRunning && (
             <>
-              <text x={PIPE_START_X + 15} y={PIPE_Y - 18} fill="var(--eg-text-dim)" fontSize="7" fontFamily="Orbitron, sans-serif" letterSpacing="0.15em" opacity={0.5}>
+              <text x={PIPE_START_X + 15} y={PIPE_Y - 18} fill="var(--eg-text-dim)" fontSize="7" fontFamily="Outfit, sans-serif" letterSpacing="0.15em" opacity={0.5}>
                 INGEST
               </text>
-              <text x={VALVE_X + 40} y={PIPE_Y - 18} fill="var(--eg-text-dim)" fontSize="7" fontFamily="Orbitron, sans-serif" letterSpacing="0.15em" opacity={isMeshGatewayActive ? 0.5 : isOnline ? 0.5 : 0.2}>
-                {isMeshGatewayActive ? "MESH AIRLIFT" : "CLOUD SYNC"}
+              <text x={VALVE_X + 40} y={PIPE_Y - 18} fill="var(--eg-text-dim)" fontSize="7" fontFamily="Outfit, sans-serif" letterSpacing="0.15em" opacity={isOnline ? 0.5 : 0.2}>
+                CLOUD SYNC
               </text>
             </>
           )}
 
-          {isMeshGatewayActive && isRunning && !isOnline && (
-            <g opacity={0.85}>
-              <motion.path
-                d={`M ${BUFFER_X - 6} ${PIPE_Y - 10} C ${BUFFER_X + 86} ${PIPE_Y - 84}, ${CENTRAL_X - 118} ${PIPE_Y - 110}, ${CENTRAL_X - 8} ${PIPE_Y - 26}`}
-                fill="none"
-                stroke="var(--eg-flow)"
-                strokeWidth={1.4}
-                strokeDasharray="7 8"
-                initial={{ pathLength: 0.2, opacity: 0.15 }}
-                animate={{ pathLength: 1, opacity: [0.18, 0.45, 0.18], strokeDashoffset: [0, -24] }}
-                transition={{
-                  pathLength: { duration: 0.7, ease: "easeOut" },
-                  opacity: { duration: 2.2, repeat: Infinity, ease: "easeInOut" },
-                  strokeDashoffset: { duration: 1.6, repeat: Infinity, ease: "linear" },
-                }}
-              />
-              <motion.g
-                initial={{ opacity: 0, scale: 0.92, x: 0, y: 0 }}
-                animate={{ opacity: [0.72, 1, 0.72], scale: [1, 1.03, 1], x: [0, 10, 0], y: [0, -6, 0] }}
-                transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
-              >
-                <ellipse cx={BUFFER_X + 48} cy={PIPE_Y - 44} rx={18} ry={5} fill="var(--eg-flow)" opacity={0.12} />
-                <foreignObject x={BUFFER_X + 26} y={PIPE_Y - 94} width={44} height={44}>
-                  <div className="flex h-full w-full items-center justify-center">
-                    <Plane className="h-9 w-9 text-[var(--eg-flow)] drop-shadow-[0_0_10px_rgba(32,113,181,0.28)]" strokeWidth={2} />
-                  </div>
-                </foreignObject>
-              </motion.g>
-            </g>
-          )}
-
           {/* === PACKETS / PARTICLES === */}
-          <PacketLayer />
-          {pendingAnomalyPosition && (
-            <g filter="url(#glow-cyan)">
-              <motion.circle
-                initial={{ cx: pendingAnomalyPosition.start.x - 10, cy: pendingAnomalyPosition.start.y }}
-                animate={{
-                  cx: [pendingAnomalyPosition.start.x - 10, pendingAnomalyPosition.via.x - 10, pendingAnomalyPosition.end.x - 10],
-                  cy: [pendingAnomalyPosition.start.y, pendingAnomalyPosition.via.y, pendingAnomalyPosition.end.y],
-                }}
-                transition={{ duration: 0.72, ease: "linear", times: [0, 0.26, 1] }}
-                r={3.2}
-                fill="var(--eg-flow)"
-                opacity={0.16}
-              />
-              <motion.circle
-                initial={{ cx: pendingAnomalyPosition.start.x - 4, cy: pendingAnomalyPosition.start.y }}
-                animate={{
-                  cx: [pendingAnomalyPosition.start.x - 4, pendingAnomalyPosition.via.x - 4, pendingAnomalyPosition.end.x - 4],
-                  cy: [pendingAnomalyPosition.start.y, pendingAnomalyPosition.via.y, pendingAnomalyPosition.end.y],
-                }}
-                transition={{ duration: 0.72, ease: "linear", times: [0, 0.26, 1] }}
-                r={4.6}
-                fill="var(--eg-flow)"
-                opacity={0.35}
-              />
-              <motion.circle
-                initial={{ cx: pendingAnomalyPosition.start.x, cy: pendingAnomalyPosition.start.y }}
-                animate={{
-                  cx: [pendingAnomalyPosition.start.x, pendingAnomalyPosition.via.x, pendingAnomalyPosition.end.x],
-                  cy: [pendingAnomalyPosition.start.y, pendingAnomalyPosition.via.y, pendingAnomalyPosition.end.y],
-                }}
-                transition={{ duration: 0.72, ease: "linear", times: [0, 0.26, 1] }}
-                r={5.8}
-                fill="var(--eg-flow)"
-                opacity={0.95}
-              />
-            </g>
-          )}
+          {packetsInTransit.map((packet) => {
+            const isAnomalyPayload = "anomalyScore" in packet.payload && packet.payload.type === "anomaly";
+            const isCompacted = packet.payload.type === "compacted";
+            const pastEdgeAI =
+              packet.segment === "to-central" ||
+              (packet.segment === "to-buffer" && packet.progress >= BRAIN_PROGRESS);
+            const showAsAnomaly = isAnomalyPayload && pastEdgeAI;
 
-          <AnimatePresence>
-            {!isOnline && isRunning && !isMeshGatewayActive && (
-              <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <rect x={300} y={20} width={500} height={26} rx={13} fill="rgba(211, 64, 61, 0.12)" stroke="rgba(211, 64, 61, 0.35)" />
-                <text
-                  x={550}
-                  y={37}
-                  textAnchor="middle"
-                  fill="var(--eg-anomaly)"
-                  fontSize="10"
-                  fontWeight="700"
-                  fontFamily="Orbitron, sans-serif"
-                  letterSpacing="0.24em"
-                >
-                  NETWORK DISCONNECTED  EDGE ISOLATION MODE
-                </text>
-              </motion.g>
-            )}
-          </AnimatePresence>
+            const position =
+              packet.segment === "to-buffer" &&
+              "sourceTurbine" in packet.payload &&
+              packet.progress < 0.22
+                ? packetEntryPosition(packet.payload.sourceTurbine, packet.progress)
+                : packetPosition(packet.segment, packet.progress);
 
-          <AnimatePresence>
-            {!isOnline && isRunning && isMeshGatewayActive && (
-              <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <rect x={332} y={20} width={436} height={26} rx={13} fill="rgba(32, 113, 181, 0.1)" stroke="rgba(32, 113, 181, 0.28)" />
-                <text
-                  x={550}
-                  y={37}
-                  textAnchor="middle"
-                  fill="var(--eg-flow)"
-                  fontSize="10"
-                  fontWeight="700"
-                  fontFamily="Orbitron, sans-serif"
-                  letterSpacing="0.2em"
-                >
-                  MESH GATEWAY ACTIVE  AIRLIFTING EDGE BUFFER
-                </text>
-              </motion.g>
-            )}
-          </AnimatePresence>
+            const color = showAsAnomaly ? "var(--eg-anomaly)" : isCompacted ? "#b388ff" : "var(--eg-flow)";
+            const size = showAsAnomaly ? 5 : isCompacted ? 6 : 4;
+
+            return (
+              <g key={`${packet.segment}-${packet.id}`} filter={showAsAnomaly ? "url(#glow-red)" : "url(#glow-cyan)"}>
+                <circle cx={position.x - 8} cy={position.y} r={size * 0.6} fill={color} opacity={0.15} />
+                <circle cx={position.x - 4} cy={position.y} r={size * 0.8} fill={color} opacity={0.25} />
+                <circle cx={position.x} cy={position.y} r={size} fill={color} opacity={0.9} />
+                <circle cx={position.x} cy={position.y} r={size * 0.4} fill="white" opacity={0.6} />
+              </g>
+            );
+          })}
 
           {/* === TURBINES (triangular formation) === */}
           {TURBINE_POSITIONS.map((pos, index) => {
             const turbineId = index + 1;
-            const active = forcedAnomalyTurbine === turbineId || pendingAnomalyTurbine === turbineId;
+            const active = forcedAnomalyTurbine === turbineId;
             const enabled = enabledTurbines.includes(turbineId);
             const hubY = pos.y - 34;
             return (
@@ -645,7 +719,7 @@ export function PipelineView() {
           })}
 
           {/* === EDGE AI CHIP === */}
-          <EdgeAIChip isRunning={isRunning} />
+          <AIChipNode x={BRAIN_X} y={PIPE_Y} isActive={brainActive} isRunning={isRunning} />
 
           {/* === BUFFER TANK === */}
           <BufferTank
@@ -655,8 +729,6 @@ export function PipelineView() {
             inCompactionZone={inCompactionZone}
             compactionFlash={compactionFlash}
             isRunning={isRunning}
-            items={edgeStorage}
-            pendingAnomalyCount={pendingAnomalyTurbine != null ? 1 : 0}
           />
 
           {/* === VALVE === */}
@@ -675,7 +747,6 @@ export function PipelineView() {
             count={centralStorage.length}
             isOnline={isOnline}
             isRunning={isRunning}
-            isMeshGatewayActive={isMeshGatewayActive}
           />
         </svg>
 

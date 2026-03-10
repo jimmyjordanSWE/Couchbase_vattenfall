@@ -1,137 +1,42 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { selectIsMeshGatewayActive, selectIsOnline } from "~/stores/pipelineSelectors";
-import {
-  usePipelineStore,
-} from "~/stores/pipelineStore";
-import { isCompactedBlock, isDataPoint } from "~/types/edgeguard";
+import { usePipelineStore, EDGE_CAPACITY, COMPACTION_THRESHOLD } from "~/stores/pipelineStore";
+import { isDataPoint, isCompactedBlock } from "~/types/edgeguard";
 
-function StorageCardShell({
-  title,
-  children,
-  delay,
-}: {
-  title: string;
-  children: React.ReactNode;
-  delay?: number;
-}) {
+// ─── DB icon ─────────────────────────────────────────────────────────────────
+
+function DbIcon({ color = "var(--eg-flow)" }: { color?: string }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: "spring", stiffness: 300, damping: 24, delay: delay ?? 0 }}
-      className="eg-panel relative min-h-[208px] overflow-hidden p-5"
-    >
-      <div className="mb-4 flex items-center gap-2">
-        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
-          <ellipse cx="7" cy="3" rx="6" ry="2" fill="none" stroke="var(--eg-flow)" strokeWidth="1" />
-          <rect x="1" y="3" width="12" height="8" fill="none" stroke="var(--eg-flow)" strokeWidth="1" />
-          <ellipse cx="7" cy="11" rx="6" ry="2" fill="none" stroke="var(--eg-flow)" strokeWidth="1" />
-        </svg>
-        <span className="font-display text-[15px] font-semibold tracking-[0.02em] text-[var(--eg-text-bright)]">
-          {title}
-        </span>
-      </div>
-      {children}
-    </motion.div>
+    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0">
+      <ellipse cx="7" cy="3" rx="6" ry="2" fill="none" stroke={color} strokeWidth="1.2" />
+      <rect x="1" y="3" width="12" height="8" fill="none" stroke={color} strokeWidth="1.2" />
+      <ellipse cx="7" cy="11" rx="6" ry="2" fill="none" stroke={color} strokeWidth="1.2" />
+    </svg>
   );
 }
 
-export function EdgeStorageCard({ delay }: { delay?: number }) {
-  const edgeStorage = usePipelineStore((s) => s.edgeStorage);
-  const edgeCapacity = usePipelineStore((s) => s.config.edgeCapacity);
-  const compactionThreshold = usePipelineStore((s) => s.config.compactionThreshold);
-  const compactionCount = usePipelineStore((s) => s.metrics.compactionCount);
-  const edgePressure = usePipelineStore((s) => s.metrics.edgePressure);
+// ─── StoragePanel ─────────────────────────────────────────────────────────────
 
-  const edgeRatio = Math.min(1, edgeStorage.length / Math.max(edgeCapacity, 1));
-  const inCompactionZone = edgeStorage.length >= compactionThreshold;
+export function StoragePanel({ delay }: { delay: number }) {
+  const edgeStorage       = usePipelineStore((s) => s.edgeStorage);
+  const centralStorage    = usePipelineStore((s) => s.centralStorage);
+  const compactionCount   = usePipelineStore((s) => s.compactionCount);
+  const isOnline          = usePipelineStore((s) => s.isOnline);
+  const lastSyncTimestamp = usePipelineStore((s) => s.lastSyncTimestamp);
+  const lastDrainedItemId = usePipelineStore((s) => s.lastDrainedItemId);
 
-  const normalCount = edgeStorage.filter((i) => isDataPoint(i) && i.type === "normal").length;
-  const anomalyCount = edgeStorage.filter((i) => isDataPoint(i) && i.type === "anomaly").length;
+  const edgeRatio       = Math.min(1, edgeStorage.length / EDGE_CAPACITY);
+  const inCompactionZone = edgeStorage.length >= COMPACTION_THRESHOLD;
+
+  const normalCount   = edgeStorage.filter((i) => isDataPoint(i) && i.type === "normal").length;
+  const anomalyCount  = edgeStorage.filter((i) => isDataPoint(i) && i.type === "anomaly").length;
   const compactedCount = edgeStorage.filter(isCompactedBlock).length;
 
   const edgeBarColor = inCompactionZone
     ? "var(--eg-anomaly)"
     : edgeRatio > 0.6
-      ? "var(--eg-alert)"
-      : "var(--eg-flow)";
-
-  const [compactFlash, setCompactFlash] = useState(false);
-  useEffect(() => {
-    if (compactionCount === 0) return;
-    setCompactFlash(true);
-    const timeoutId = setTimeout(() => setCompactFlash(false), 600);
-    return () => clearTimeout(timeoutId);
-  }, [compactionCount]);
-
-  return (
-    <StorageCardShell title="EDGE CAPACITY" delay={delay}>
-      {compactFlash && (
-        <motion.div
-          className="pointer-events-none absolute inset-0 z-10"
-          style={{
-            background:
-              "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(179,136,255,0.08) 2px, rgba(179,136,255,0.08) 4px)",
-          }}
-          initial={{ opacity: 0.8, y: -40 }}
-          animate={{ opacity: 0, y: 40 }}
-          transition={{ duration: 0.5 }}
-        />
-      )}
-
-      <div className="mb-3">
-        <div className="mb-1 flex items-center justify-between text-[11px]">
-          <span className="text-[var(--eg-text-dim)]">Capacity</span>
-          <span className="font-mono text-[13px] text-[var(--eg-text-bright)]">
-            {edgeStorage.length}/{edgeCapacity}
-          </span>
-        </div>
-        <div className="h-3 overflow-hidden rounded-full bg-[var(--eg-border)]">
-          <motion.div
-            className="h-full rounded-full"
-            animate={{ width: `${edgeRatio * 100}%`, backgroundColor: edgeBarColor }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 text-[10px]">
-        <div className="rounded-xl bg-[#f7f9fc] px-3 py-2 text-center">
-          <div className="font-mono font-bold text-[var(--eg-ok)]">{normalCount}</div>
-          <div className="text-[var(--eg-text-dim)]">Normal</div>
-        </div>
-        <div className="rounded-xl bg-[#f7f9fc] px-3 py-2 text-center">
-          <div className="font-mono font-bold text-[var(--eg-anomaly)]">{anomalyCount}</div>
-          <div className="text-[var(--eg-text-dim)]">Anomaly</div>
-        </div>
-        <div className="rounded-xl bg-[#f7f9fc] px-3 py-2 text-center">
-          <div className="font-mono font-bold text-[#b388ff]">{compactedCount}</div>
-          <div className="text-[var(--eg-text-dim)]">Compact</div>
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between border-t border-[var(--eg-border)] pt-3 text-[11px]">
-        <span className="text-[var(--eg-text-dim)]">Compactions</span>
-        <span className="font-mono font-bold text-[var(--eg-alert)]">{compactionCount}</span>
-      </div>
-
-      {edgePressure > 0.3 && (
-        <div className="mt-2 flex items-center gap-2 text-[11px] text-[var(--eg-anomaly)]">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-[var(--eg-anomaly)]" />
-          Pressure {Math.round(edgePressure * 100)}%
-        </div>
-      )}
-    </StorageCardShell>
-  );
-}
-
-export function CentralStorageCard({ delay }: { delay?: number }) {
-  const isOnline = usePipelineStore(selectIsOnline);
-  const isMeshGatewayActive = usePipelineStore(selectIsMeshGatewayActive);
-  const centralCapacity = usePipelineStore((s) => s.config.centralCapacity ?? 100);
-  const lastSyncTimestamp = usePipelineStore((s) => s.metrics.lastSyncTimestamp);
-  const centralLength = usePipelineStore((s) => s.metrics.centralStorageLength);
+    ? "var(--eg-alert)"
+    : "var(--eg-flow)";
 
   const lastSyncAgo = lastSyncTimestamp
     ? Math.round((Date.now() - lastSyncTimestamp) / 1000)
@@ -139,55 +44,158 @@ export function CentralStorageCard({ delay }: { delay?: number }) {
 
   const [syncPulse, setSyncPulse] = useState(false);
   useEffect(() => {
-    if (!lastSyncTimestamp) return;
+    if (!lastDrainedItemId) return;
     setSyncPulse(true);
-    const timeoutId = setTimeout(() => setSyncPulse(false), 300);
-    return () => clearTimeout(timeoutId);
-  }, [lastSyncTimestamp]);
+    const t = setTimeout(() => setSyncPulse(false), 300);
+    return () => clearTimeout(t);
+  }, [lastDrainedItemId]);
+
+  const panelStyle: React.CSSProperties = {
+    backgroundColor: "var(--eg-surface)",
+    border: "1px solid var(--eg-border)",
+    borderRadius: 8,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+    padding: "16px",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10,
+    fontWeight: 500,
+    color: "var(--eg-text-dim)",
+    fontFamily: "Outfit, sans-serif",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  };
+
+  const valueStyle: React.CSSProperties = {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--eg-text-bright)",
+    fontFamily: "IBM Plex Mono, monospace",
+  };
 
   return (
-    <StorageCardShell title="CENTRAL CAPACITY" delay={delay}>
-      {syncPulse && (
-        <motion.div
-          className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] border-2 border-[var(--eg-flow)]/30"
-          initial={{ opacity: 0.8 }}
-          animate={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-        />
-      )}
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut", delay }}
+      className="grid grid-cols-2 gap-4"
+    >
+      {/* ── Edge Capacity ── */}
+      <div style={panelStyle}>
+        <div className="flex items-center gap-2 mb-4">
+          <DbIcon color="var(--eg-flow)" />
+          <span
+            className="text-sm font-semibold uppercase tracking-wide"
+            style={{ color: "var(--eg-text-bright)", fontFamily: "Outfit, sans-serif" }}
+          >
+            Edge Capacity
+          </span>
+        </div>
 
-      <div className="mb-3 flex items-center justify-between text-[11px]">
-        <span className="text-[var(--eg-text-dim)]">Synced items</span>
-        <span className="font-mono text-[18px] font-bold text-[var(--eg-text-bright)]">
-          {centralLength}/{centralCapacity}
-        </span>
-      </div>
+        {/* Capacity label + bar */}
+        <div className="mb-1 flex items-center justify-between">
+          <span style={labelStyle}>Capacity</span>
+          <span style={valueStyle}>
+            {edgeStorage.length}/{EDGE_CAPACITY}
+          </span>
+        </div>
+        <div className="h-2 rounded-full overflow-hidden mb-4" style={{ backgroundColor: "var(--eg-border)" }}>
+          <motion.div
+            className="h-full rounded-full"
+            animate={{ width: `${edgeRatio * 100}%`, backgroundColor: edgeBarColor }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          />
+        </div>
 
-      <div className="mb-2 flex items-center justify-between text-[11px]">
-        <span className="text-[var(--eg-text-dim)]">Status</span>
-        <div className="flex items-center gap-2">
-          <div className={`eg-led ${isOnline || isMeshGatewayActive ? "eg-led-online" : "eg-led-offline"}`} />
-          <span className={`font-mono font-bold ${isOnline || isMeshGatewayActive ? "text-[var(--eg-ok)]" : "text-[var(--eg-anomaly)]"}`}>
-            {isOnline ? "SYNCING" : isMeshGatewayActive ? "MESH DRAIN" : "OFFLINE"}
+        {/* Breakdown */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {[
+            { label: "Normal", value: normalCount, color: "var(--eg-ok)" },
+            { label: "Anomaly", value: anomalyCount, color: "var(--eg-anomaly)" },
+            { label: "Compact", value: compactedCount, color: "#8b5cf6" },
+          ].map(({ label, value, color }) => (
+            <div
+              key={label}
+              className="flex flex-col items-center py-2 rounded-md"
+              style={{ backgroundColor: "var(--eg-bg)" }}
+            >
+              <span className="text-sm font-bold" style={{ color, fontFamily: "IBM Plex Mono, monospace" }}>
+                {value}
+              </span>
+              <span className="text-[10px] mt-0.5" style={{ color: "var(--eg-text-dim)", fontFamily: "Outfit, sans-serif" }}>
+                {label}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Compaction count */}
+        <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: "var(--eg-border)" }}>
+          <span style={labelStyle}>Compactions</span>
+          <span className="text-sm font-semibold" style={{ color: "var(--eg-alert)", fontFamily: "IBM Plex Mono, monospace" }}>
+            {compactionCount}
           </span>
         </div>
       </div>
 
-      {lastSyncAgo !== null && (
-        <div className="flex items-center justify-between text-[11px]">
-          <span className="text-[var(--eg-text-dim)]">Last sync</span>
-          <span className="font-mono text-[var(--eg-text-dim)]">{lastSyncAgo}s ago</span>
+      {/* ── Central Capacity ── */}
+      <div style={{ ...panelStyle, position: "relative", overflow: "hidden" }}>
+        {syncPulse && (
+          <motion.div
+            className="absolute inset-0 pointer-events-none z-10 border-2 rounded-[inherit]"
+            style={{ borderColor: "var(--eg-flow)", opacity: 0.4 }}
+            initial={{ opacity: 0.4 }}
+            animate={{ opacity: 0 }}
+            transition={{ duration: 0.4 }}
+          />
+        )}
+
+        <div className="flex items-center gap-2 mb-4">
+          <DbIcon color={isOnline ? "var(--eg-flow)" : "var(--eg-muted)"} />
+          <span
+            className="text-sm font-semibold uppercase tracking-wide"
+            style={{ color: "var(--eg-text-bright)", fontFamily: "Outfit, sans-serif" }}
+          >
+            Central Capacity
+          </span>
         </div>
-      )}
-    </StorageCardShell>
+
+        {/* Synced items */}
+        <div className="flex items-center justify-between mb-3">
+          <span style={labelStyle}>Synced items</span>
+          <span className="text-2xl font-bold" style={{ color: "var(--eg-text-bright)", fontFamily: "IBM Plex Mono, monospace" }}>
+            {centralStorage.length}
+            <span className="text-sm font-normal ml-1 text-[var(--eg-text-dim)]">/100</span>
+          </span>
+        </div>
+
+        {/* Status */}
+        <div className="flex items-center justify-between mb-3">
+          <span style={labelStyle}>Status</span>
+          <div className="flex items-center gap-1.5">
+            <div className={`eg-led ${isOnline ? "eg-led-online" : "eg-led-offline"}`} />
+            <span
+              className="text-sm font-semibold"
+              style={{
+                color: isOnline ? "var(--eg-ok)" : "var(--eg-anomaly)",
+                fontFamily: "Outfit, sans-serif",
+              }}
+            >
+              {isOnline ? "Online" : "Offline"}
+            </span>
+          </div>
+        </div>
+
+        {/* Last sync */}
+        {lastSyncAgo !== null && (
+          <div className="flex items-center justify-between">
+            <span style={labelStyle}>Last sync</span>
+            <span style={{ ...valueStyle, fontSize: 12 }}>{lastSyncAgo}s ago</span>
+          </div>
+        )}
+      </div>
+    </motion.div>
   );
 }
 
-export function StoragePanel({ delay }: { delay: number }) {
-  return (
-    <div className="flex flex-col gap-4">
-      <EdgeStorageCard delay={delay} />
-      <CentralStorageCard delay={(delay ?? 0) + 0.05} />
-    </div>
-  );
-}
