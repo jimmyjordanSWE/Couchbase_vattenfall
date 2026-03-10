@@ -1,0 +1,390 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html,
+body {
+  background-color: #f0f4f8;
+  color-scheme: light;
+  font-family: "Outfit", ui-sans-serif, system-ui, sans-serif;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.439 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+}
+
+/* ================================================================
+   EDGEGUARD COMMAND CENTER - Industrial Sci-Fi Theme
+   ================================================================ */
+
+/* ============================================================
+   VATTENFALL EDGEGUARD — Light Corporate Theme
+   All --eg-* variables remapped to Vattenfall brand palette
+   ============================================================ */
+
+.vattenfall-demo {
+  /* Backgrounds */
+  --eg-bg:           #f0f4f8;
+  --eg-surface:      #ffffff;
+  --eg-panel:        #ffffff;
+
+  /* Borders */
+  --eg-border:       #e2e8f0;
+  --eg-border-bright:#cbd5e1;
+  --eg-muted:        #94a3b8;
+
+  /* Primary: Vattenfall Blue */
+  --eg-flow:         #0087cd;
+  --eg-flow-dim:     rgba(0, 135, 205, 0.18);
+  --eg-flow-glow:    rgba(0, 135, 205, 0.07);
+
+  /* States */
+  --eg-alert:        #f59e0b;
+  --eg-anomaly:      #ef4444;
+  --eg-anomaly-dim:  rgba(239, 68, 68, 0.15);
+  --eg-ok:           #22c55e;
+  --eg-ok-dim:       rgba(34, 197, 94, 0.15);
+
+  /* Typography */
+  --eg-text:         #334155;
+  --eg-text-dim:     #64748b;
+  --eg-text-bright:  #0f172a;
+
+  --eg-pressure: 0;
+  font-family: "Outfit", ui-sans-serif, sans-serif;
+  font-weight: 400;
+}
+
+/* Override font-display: use Outfit semibold instead of Orbitron */
+.vattenfall-demo .font-display {
+  font-family: "Outfit", ui-sans-serif, sans-serif;
+  letter-spacing: 0.02em;
+}
+
+/* Override font-mono: use IBM Plex Mono */
+.vattenfall-demo .font-mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+/* Shadow utilities replace glow utilities */
+.glow-cyan,
+.glow-cyan-box {
+  box-shadow: 0 0 0 1px rgba(0, 135, 205, 0.2), 0 2px 8px rgba(0, 135, 205, 0.12);
+}
+.glow-red,
+.glow-red-box {
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2), 0 2px 8px rgba(239, 68, 68, 0.10);
+}
+.glow-amber-box {
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.2), 0 2px 8px rgba(245, 158, 11, 0.10);
+}
+.glow-green-box {
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.2), 0 2px 8px rgba(34, 197, 94, 0.10);
+}
+
+/* Page background — clean light */
+.vattenfall-demo.demo-bg {
+  background-color: var(--eg-bg);
+  position: relative;
+}
+
+/* Remove dark atmospheric pseudo-elements */
+.vattenfall-demo.demo-bg::before,
+.vattenfall-demo.demo-bg::after {
+  content: none;
+}
+
+/* Remove scanline atmosphere */
+.eg-atmosphere::before {
+  content: none;
+}
+
+/* Panel cards — clean white with subtle shadow */
+.vattenfall-demo .eg-panel {
+  background: var(--eg-panel);
+  border: 1px solid var(--eg-border);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.vattenfall-demo .eg-panel-glow {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px var(--eg-flow-dim);
+}
+
+/* Section labels */
+.vattenfall-demo .eg-label {
+  font-family: "Outfit", ui-sans-serif, sans-serif;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--eg-text-dim);
+}
+
+/* LED indicators */
+.eg-led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.eg-led-online {
+  background: var(--eg-ok);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+  animation: led-pulse 2.5s ease-in-out infinite;
+}
+.eg-led-offline {
+  background: var(--eg-anomaly);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+  animation: led-pulse-fast 1s ease-in-out infinite;
+}
+
+@keyframes led-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
+@keyframes led-pulse-fast {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* Pipe flow animation */
+@keyframes pipe-flow {
+  from { stroke-dashoffset: 40; }
+  to { stroke-dashoffset: 0; }
+}
+.pipe-flow-anim {
+  stroke-dasharray: 8 32;
+  animation: pipe-flow 1.2s linear infinite;
+}
+
+@keyframes pipe-flow-reverse {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: 40; }
+}
+
+/* Turbine spin */
+@keyframes turbine-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.turbine-spin {
+  animation: turbine-spin 3s linear infinite;
+}
+.turbine-spin-fast {
+  animation: turbine-spin 1s linear infinite;
+}
+
+/* Shake for anomaly events */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-3px); }
+  40% { transform: translateX(3px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
+}
+.eg-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+/* Pressure border pulse */
+@keyframes pressure-pulse {
+  0%, 100% { border-color: var(--eg-border); }
+  50% { border-color: var(--eg-alert); }
+}
+.eg-pressure-border {
+  animation: pressure-pulse 1.5s ease-in-out infinite;
+}
+
+/* Compaction flash */
+@keyframes compaction-flash {
+  0% { opacity: 0.3; }
+  100% { opacity: 0; }
+}
+
+/* AI chip pulse */
+@keyframes ai-pulse {
+  0%, 100% { opacity: 0.08; }
+  50% { opacity: 0.18; }
+}
+.ai-pulse {
+  animation: ai-pulse 3.5s ease-in-out infinite;
+}
+
+/* Entry animation */
+@keyframes slide-up-fade {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.eg-enter {
+  animation: slide-up-fade 0.4s ease-out both;
+}
+
+/* Valve rotation */
+@keyframes valve-close {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(90deg); }
+}
+@keyframes valve-open {
+  from { transform: rotate(90deg); }
+  to { transform: rotate(0deg); }
+}
+
+/* Banner flash */
+@keyframes banner-flash {
+  0%, 100% { opacity: 0.95; }
+  50% { opacity: 1; }
+}
+
+/* Wave animation for buffer fluid */
+@keyframes wave {
+  0% { d: path("M0,0 Q15,-3 30,0 Q45,3 60,0"); }
+  50% { d: path("M0,0 Q15,3 30,0 Q45,-3 60,0"); }
+  100% { d: path("M0,0 Q15,-3 30,0 Q45,3 60,0"); }
+}
+
+/* Capacity bar transitions */
+.eg-capacity-bar {
+  transition: width 0.4s ease-out, background-color 0.6s ease;
+}
+
+/* Scrollbar styling for panels */
+.vattenfall-demo ::-webkit-scrollbar,
+.eg-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.vattenfall-demo ::-webkit-scrollbar-track,
+.eg-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.vattenfall-demo ::-webkit-scrollbar-thumb,
+.eg-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--eg-border-bright);
+  border-radius: 4px;
+}
+.eg-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--eg-border-bright) transparent;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply text-foreground;
+  }
+}

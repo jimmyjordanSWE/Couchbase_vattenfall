@@ -1,0 +1,20 @@
+{
+  "name": "main",
+  "bucket": "main",
+  "guest": {
+    "disabled": false,
+    "admin_channels": ["*"]
+  },
+  "import_docs": true,
+  "num_index_replicas": 0,
+  "enable_shared_bucket_access": true,
+  "scopes": {
+    "central": {
+      "collections": {
+        "data": {
+          "sync": "function(doc, oldDoc, meta) { channel('all'); }"
+        }
+      }
+    }
+  }
+}

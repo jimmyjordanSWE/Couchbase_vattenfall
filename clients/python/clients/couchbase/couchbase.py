@@ -1,5 +1,4 @@
 import os
-import socket
 import uuid
 from datetime import timedelta
 from dataclasses import dataclass
@@ -23,31 +22,6 @@ class CouchbaseConf:
     protocol: str
 
 
-def _resolve_reachable_host(host: str, port: int) -> str:
-    seen: set[str] = set()
-    try:
-        addrinfos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    except OSError:
-        return host
-
-    for family, socktype, proto, _, sockaddr in addrinfos:
-        ip = sockaddr[0]
-        if ip in seen:
-            continue
-        seen.add(ip)
-        sock = socket.socket(family, socktype, proto)
-        sock.settimeout(1.0)
-        try:
-            sock.connect(sockaddr)
-            return ip
-        except OSError:
-            continue
-        finally:
-            sock.close()
-
-    return host
-
-
 class CouchbaseClient:
     """
     Couchbase client that holds a connection to a specific cluster.
@@ -62,9 +36,8 @@ class CouchbaseClient:
         """Returns a cached Couchbase cluster connection."""
         if self._cluster is None:
             auth = PasswordAuthenticator(self._conf.username, self._conf.password)
-            host = _resolve_reachable_host(self._conf.host, 8091 if self._conf.protocol == "couchbase" else 18091)
-            url = self._conf.protocol + "://" + host
-            self._cluster = Cluster(url, ClusterOptions(auth))
+            url = self._conf.protocol + "://" + self._conf.host
+            self._cluster = Cluster(url, ClusterOptions(auth, enable_dns_srv=False))
             self._cluster.wait_until_ready(timedelta(seconds=500))
         return self._cluster
 
